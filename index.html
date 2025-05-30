@@ -197,13 +197,10 @@
     <div class="tree" id="tree"></div>
     <div class="controls">
       <div id="pointIndicator">0/50</div>
-      <div>
-        <button onclick="exportBuild()">Export</button>
-        <button onclick="importBuild()">Import</button>
-      </div>
+      <button id="resetBtn">Reset</button>
+      <button id="copyUrlBtn">Export</button>
     </div>
   </div>
-
   <script>
     const totalPoints = 50;
     const KOS_CLASSES = [
@@ -642,13 +639,58 @@
     const kosSelect = document.getElementById('kosSelect');
     const treeEl = document.getElementById('tree');
     const pointIndicator = document.getElementById('pointIndicator');
+    const resetBtn   = document.getElementById('resetBtn');
+    const copyUrlBtn = document.getElementById('copyUrlBtn');
+
+    resetBtn.onclick = () => {
+      builds[selectedClass] = new Array(nodeCount).fill(0);
+      const url = new URL(window.location);
+      url.searchParams.delete('build');
+      window.history.replaceState(null, '', url);
+      loadBuild();
+    };
+
+    copyUrlBtn.onclick = () => {
+      navigator.clipboard.writeText(window.location.href)
+        .then(() => {
+          // optional: give feedback
+          copyUrlBtn.textContent = 'Copied!';
+          setTimeout(() => copyUrlBtn.textContent = 'Copy URL', 1500);
+        })
+        .catch(err => {
+          console.error('Failed to copy URL:', err);
+        });
+    };
 
     function init() {
+      // 1. parse any “build” param from the URL
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('build')) {
+        try {
+          const obj = JSON.parse(atob(params.get('build')));
+          Object.entries(obj).forEach(([cls, arr]) => {
+            if (builds[cls] && Array.isArray(arr) && arr.length === nodeCount) {
+              builds[cls] = arr;
+            }
+          });
+        } catch (e) {
+          console.error('Invalid build data in URL:', e);
+        }
+      }
+
+      // 2. populate the class dropdown
       KOS_CLASSES.forEach(c => kosSelect.appendChild(new Option(c, c)));
+
+      // 3. set up initial selection and handlers
       selectedClass = KOS_CLASSES[0];
       lastEditedClass = selectedClass;
       kosSelect.value = selectedClass;
-      kosSelect.onchange = () => { selectedClass = kosSelect.value; loadBuild(); };
+      kosSelect.onchange = () => {
+        selectedClass = kosSelect.value;
+        loadBuild();
+      };
+
+      // 4. render the first build
       loadBuild();
     }
 
@@ -657,7 +699,23 @@
       recalcPoints();
       renderTree();
     }
-    function saveBuild() { builds[selectedClass] = treeData.map(n => n.value); }
+    function saveBuild() {
+        builds[selectedClass] = treeData.map(n => n.value);
+        updateURL();    // ← push the new state into the URL
+    }
+
+    function updateURL() {
+        const exportData = {};
+        KOS_CLASSES.forEach(cls => {
+            const arr = builds[cls];
+            if (arr.some(v => v > 0)) exportData[cls] = arr;
+        });
+        const str = btoa(JSON.stringify(exportData));
+        const url = new URL(window.location);
+        url.searchParams.set('build', str);
+        window.history.replaceState(null, '', url);
+        }
+
     function recalcPoints() {
       pointsSpent = treeData.reduce((sum, n) => sum + n.value * n.cost, 0);
       pointIndicator.textContent = `${pointsSpent}/${totalPoints}`;
@@ -736,43 +794,8 @@
         .reduce((s, n) => s + n.value * n.cost, 0);
       return sum >= 16;
     }
-
-    function exportBuild() {
-      const exportData = {};
-      KOS_CLASSES.forEach(cls => {
-        const arr = builds[cls];
-        if (arr.some(v => v > 0)) exportData[cls] = arr;
-      });
-      navigator.clipboard.writeText(btoa(JSON.stringify(exportData)))
-         .then(() => alert('Build string copied to clipboard!'))
-         .catch(() => alert('Clipboard write failed'));
-
-    }
-
-function importBuild() {
-  navigator.clipboard.readText()
-    .then(text => {
-      try {
-        const obj = JSON.parse(atob(text.trim()));
-        if (!builds[lastEditedClass]) throw new Error();
-        Object.keys(obj).forEach(cls => {
-          if (builds[cls] &&
-              Array.isArray(obj[cls]) &&
-              obj[cls].length === nodeCount) {
-            builds[cls] = obj[cls];
-          }
-        });
-        selectedClass = lastEditedClass;
-        kosSelect.value = selectedClass;
-        loadBuild();
-      } catch {
-        alert('Copy your string first!');
-      }
-    })
-    .catch(() => alert('Failed to read from clipboard'));
-}
-
     init();
   </script>
 </body>
 </html>
+
