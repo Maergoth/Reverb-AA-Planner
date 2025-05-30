@@ -636,6 +636,7 @@
     KOS_CLASSES.forEach(cls => builds[cls] = new Array(nodeCount).fill(0));
 
     let selectedClass = '';
+    let lastEditedClass = selectedClass;
     let treeData = [];
     let pointsSpent = 0;
     const kosSelect = document.getElementById('kosSelect');
@@ -645,6 +646,7 @@
     function init() {
       KOS_CLASSES.forEach(c => kosSelect.appendChild(new Option(c, c)));
       selectedClass = KOS_CLASSES[0];
+      lastEditedClass = selectedClass;
       kosSelect.value = selectedClass;
       kosSelect.onchange = () => { selectedClass = kosSelect.value; loadBuild(); };
       loadBuild();
@@ -698,6 +700,7 @@
 
           node.onclick = () => {
             if (canClick) {
+              lastEditedClass = selectedClass;
               data.value++;
               saveBuild();
               recalcPoints();
@@ -707,6 +710,7 @@
           node.oncontextmenu = e => {
             e.preventDefault();
             if (data.value > 0) {
+              lastEditedClass = selectedClass;
               data.value--;
               saveBuild();
               recalcPoints();
@@ -739,22 +743,34 @@
         const arr = builds[cls];
         if (arr.some(v => v > 0)) exportData[cls] = arr;
       });
-      prompt('Copy your build string:', btoa(JSON.stringify(exportData)));
+      navigator.clipboard.writeText(btoa(JSON.stringify(exportData)))
+         .then(() => alert('Build string copied to clipboard!'))
+         .catch(() => alert('Clipboard write failed'));
+
     }
 
-    function importBuild() {
+function importBuild() {
+  navigator.clipboard.readText()
+    .then(text => {
       try {
-        const obj = JSON.parse(atob(prompt('Paste your build string:')));
+        const obj = JSON.parse(atob(text.trim()));
+        if (!builds[lastEditedClass]) throw new Error();
         Object.keys(obj).forEach(cls => {
-          if (builds[cls] && Array.isArray(obj[cls]) && obj[cls].length === nodeCount) {
+          if (builds[cls] &&
+              Array.isArray(obj[cls]) &&
+              obj[cls].length === nodeCount) {
             builds[cls] = obj[cls];
           }
         });
+        selectedClass = lastEditedClass;
+        kosSelect.value = selectedClass;
         loadBuild();
       } catch {
-        alert('Invalid build string');
+        alert('Copy your string first!');
       }
-    }
+    })
+    .catch(() => alert('Failed to read from clipboard'));
+}
 
     init();
   </script>
