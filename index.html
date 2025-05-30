@@ -86,16 +86,25 @@
 
     .tree {
       display: grid;
-      grid-template-columns: repeat(5, 100px);
-      grid-template-rows: repeat(6, 100px);
-      gap: 12px;
+      /* let each of the 5 columns flex-shrink or grow */
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      /* rows auto-sized to match column width via aspect-ratio on .node */
+      grid-auto-rows: 1fr;
+      gap: 8px;
+      /* never exceed the natural width of 5×100px+gaps */
+      max-width: calc(5 * 100px + 4 * 8px);
+      width: 100%;
+      /* center all grid items in their cells */
+      justify-items: center;
     }
+
 
     .node {
       background: var(--node-bg);
       border: 2px solid var(--node-border);
       border-radius: 12px;
-      width: 100px;
+      width: clamp(50px, 18vw, 100px);
+      aspect-ratio: 1 / 1;
       height: 100px;
       display: flex;
       align-items: center;
