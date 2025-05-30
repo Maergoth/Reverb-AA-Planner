@@ -796,15 +796,16 @@
       return treeData[prevIdx].value >= 4;
     }
 
-    // new endline logic: require ≥16 spent in that column's tiers 1–4
+    // new endline logic: require ≥4 points in *each* of the 4 preceding nodes
     function canEndline(node) {
-      const sum = treeData
-        .filter(n => n.x === node.x && n.y >= 1 && n.y <= 4)
-        .reduce((s, n) => s + n.value * n.cost, 0);
-      return sum >= 16;
+      // for tiers y=1…4 in this column, confirm each has value ≥4
+      return [1,2,3,4].every(y => {
+        const idx = nodeTemplate.findIndex(n => n.x === node.x && n.y === y);
+        return treeData[idx].value >= 4;
+      });
     }
+
     init();
   </script>
 </body>
 </html>
-
