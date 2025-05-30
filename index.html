@@ -17,79 +17,168 @@
       --shadow: rgba(0, 0, 0, 0.7);
       --font-main: 'Segoe UI', sans-serif;
     }
-    body {
-      margin: 0; padding: 2rem;
-      display: flex; flex-direction: column; align-items: center;
-      background: radial-gradient(circle at center, var(--bg-start) 0%, var(--bg-end) 100%);
-      color: #f0f0f0; font-family: var(--font-main);
+
+    /* disable text selection globally */
+    html, body {
+      -webkit-user-select: none;  /* Chrome, Safari, Edge */
+      -moz-user-select: none;     /* Firefox */
+      -ms-user-select: none;      /* IE10+ */
+      user-select: none;          /* standard */
     }
+
+    /* allow text selection in dropdown inputs */
+    .dropdowns select {
+      -webkit-user-select: text;
+      -moz-user-select: text;
+      -ms-user-select: text;
+      user-select: text;
+    }
+
+    body {
+      margin: 0;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: radial-gradient(circle at center, var(--bg-start) 0%, var(--bg-end) 100%);
+      color: #f0f0f0;
+      font-family: var(--font-main);
+    }
+
     h1 {
-      margin-bottom: 1rem; font-size: 2rem;
+      margin-bottom: 1rem;
+      font-size: 2rem;
       text-shadow: 2px 2px 4px var(--shadow);
     }
-    .dropdowns { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
-    .dropdowns label { font-weight: bold; align-self: center; }
-    .dropdowns select {
-      padding: 0.4rem 0.6rem; border-radius: 6px;
-      border: 1px solid var(--node-border);
-      background: var(--node-bg); color: #f0f0f0;
-      box-shadow: inset 2px 2px 6px var(--shadow);
-      cursor: pointer; transition: border-color 0.2s;
+
+    .dropdowns {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
     }
-    .dropdowns select:hover { border-color: var(--accent); }
-    #treeContainer { display: flex; flex-direction: column; align-items: center; width: max-content; }
+
+    .dropdowns label {
+      font-weight: bold;
+      align-self: center;
+    }
+
+    .dropdowns select {
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      border: 1px solid var(--node-border);
+      background: var(--node-bg);
+      color: #f0f0f0;
+      box-shadow: inset 2px 2px 6px var(--shadow);
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .dropdowns select:hover {
+      border-color: var(--accent);
+    }
+
+    #treeContainer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: max-content;
+    }
+
     .tree {
       display: grid;
       grid-template-columns: repeat(5, 100px);
       grid-template-rows: repeat(6, 100px);
       gap: 12px;
     }
+
     .node {
       background: var(--node-bg);
       border: 2px solid var(--node-border);
       border-radius: 12px;
-      width: 100px; height: 100px;
-      display: flex; align-items: center; justify-content: center;
-      position: relative; cursor: pointer;
+      width: 100px;
+      height: 100px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      cursor: pointer;
       transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
       box-shadow: 0 4px 6px var(--shadow);
     }
-    .node.clickable { border-color: var(--node-hover); }
+
+    .node.clickable {
+      border-color: var(--node-hover);
+    }
+
     .node.clickable:hover {
       transform: translateY(-4px) scale(1.05);
       box-shadow: 0 8px 12px var(--shadow);
     }
-    .node.unclickable:hover { border-color: var(--node-unclick); }
+
+    .node.unclickable:hover {
+      border-color: var(--node-unclick);
+    }
+
     .tooltip {
-      pointer-events: none; position: absolute;
-      bottom: 110%; left: 50%; transform: translateX(-50%);
-      background: var(--node-bg); padding: 8px;
-      border: 1px solid var(--node-border); border-radius: 6px;
-      white-space: nowrap; visibility: hidden; opacity: 0;
-      transition: opacity 0.2s; z-index: 10;
-      font-size: 0.85rem; line-height: 1.2;
+      pointer-events: none;
+      position: absolute;
+      bottom: 110%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--node-bg);
+      padding: 8px;
+      border: 1px solid var(--node-border);
+      border-radius: 6px;
+      white-space: nowrap;
+      visibility: hidden;
+      opacity: 0;
+      transition: opacity 0.2s;
+      z-index: 10;
+      font-size: 0.85rem;
+      line-height: 1.2;
       box-shadow: 0 2px 4px var(--shadow);
     }
-    .node:hover .tooltip { visibility: visible; opacity: 1; }
+
+    .node:hover .tooltip {
+      visibility: visible;
+      opacity: 1;
+    }
+
     .node.selected {
       border-color: var(--node-selected);
-      background: rgba(0,255,136,0.1);
+      background: rgba(0, 255, 136, 0.1);
       box-shadow: 0 0 10px var(--node-selected);
     }
+
     .controls {
-      margin-top: 1.5rem; display: flex;
-      flex-direction: column; align-items: center; gap: 0.5rem;
+      margin-top: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
     }
+
     .controls button {
-      margin: 0 5px; padding: 0.6rem 1.2rem;
-      font-size: 1rem; border: none; border-radius: 6px;
-      background: var(--accent); color: #fff;
-      cursor: pointer; box-shadow: 0 4px 6px var(--shadow);
+      margin: 0 5px;
+      padding: 0.6rem 1.2rem;
+      font-size: 1rem;
+      border: none;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 4px 6px var(--shadow);
       transition: background 0.2s, transform 0.1s;
     }
-    .controls button:hover { background: #009bbf; transform: translateY(-2px); }
+
+    .controls button:hover {
+      background: #009bbf;
+      transform: translateY(-2px);
+    }
+
     #pointIndicator {
-      font-weight: bold; font-size: 1.1rem;
+      font-weight: bold;
+      font-size: 1.1rem;
       color: var(--accent);
       text-shadow: 1px 1px 2px var(--shadow);
     }
