@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Origins AA Planner - Discussion in discord.gg/reverb</title>
+  <style>
+    :root {
+      --bg-start: #0f0f0f;
+      --bg-end: #1a1a1a;
+      --node-bg: #2a2a2a;
+      --node-border: #555;
+      --node-hover: #ffcc00;
+      --node-unclick: #ff4444;
+      --node-selected: #00ff88;
+      --accent: #00ccff;
+      --shadow: rgba(0, 0, 0, 0.7);
+      --font-main: 'Segoe UI', sans-serif;
+    }
+    body {
+      margin: 0; padding: 2rem;
+      display: flex; flex-direction: column; align-items: center;
+      background: radial-gradient(circle at center, var(--bg-start) 0%, var(--bg-end) 100%);
+      color: #f0f0f0; font-family: var(--font-main);
+    }
+    h1 {
+      margin-bottom: 1rem; font-size: 2rem;
+      text-shadow: 2px 2px 4px var(--shadow);
+    }
+    .dropdowns { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
+    .dropdowns label { font-weight: bold; align-self: center; }
+    .dropdowns select {
+      padding: 0.4rem 0.6rem; border-radius: 6px;
+      border: 1px solid var(--node-border);
+      background: var(--node-bg); color: #f0f0f0;
+      box-shadow: inset 2px 2px 6px var(--shadow);
+      cursor: pointer; transition: border-color 0.2s;
+    }
+    .dropdowns select:hover { border-color: var(--accent); }
+    #treeContainer { display: flex; flex-direction: column; align-items: center; width: max-content; }
+    .tree {
+      display: grid;
+      grid-template-columns: repeat(5, 100px);
+      grid-template-rows: repeat(6, 100px);
+      gap: 12px;
+    }
+    .node {
+      background: var(--node-bg);
+      border: 2px solid var(--node-border);
+      border-radius: 12px;
+      width: 100px; height: 100px;
+      display: flex; align-items: center; justify-content: center;
+      position: relative; cursor: pointer;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 6px var(--shadow);
+    }
+    .node.clickable { border-color: var(--node-hover); }
+    .node.clickable:hover {
+      transform: translateY(-4px) scale(1.05);
+      box-shadow: 0 8px 12px var(--shadow);
+    }
+    .node.unclickable:hover { border-color: var(--node-unclick); }
+    .tooltip {
+      pointer-events: none; position: absolute;
+      bottom: 110%; left: 50%; transform: translateX(-50%);
+      background: var(--node-bg); padding: 8px;
+      border: 1px solid var(--node-border); border-radius: 6px;
+      white-space: nowrap; visibility: hidden; opacity: 0;
+      transition: opacity 0.2s; z-index: 10;
+      font-size: 0.85rem; line-height: 1.2;
+      box-shadow: 0 2px 4px var(--shadow);
+    }
+    .node:hover .tooltip { visibility: visible; opacity: 1; }
+    .node.selected {
+      border-color: var(--node-selected);
+      background: rgba(0,255,136,0.1);
+      box-shadow: 0 0 10px var(--node-selected);
+    }
+    .controls {
+      margin-top: 1.5rem; display: flex;
+      flex-direction: column; align-items: center; gap: 0.5rem;
+    }
+    .controls button {
+      margin: 0 5px; padding: 0.6rem 1.2rem;
+      font-size: 1rem; border: none; border-radius: 6px;
+      background: var(--accent); color: #fff;
+      cursor: pointer; box-shadow: 0 4px 6px var(--shadow);
+      transition: background 0.2s, transform 0.1s;
+    }
+    .controls button:hover { background: #009bbf; transform: translateY(-2px); }
+    #pointIndicator {
+      font-weight: bold; font-size: 1.1rem;
+      color: var(--accent);
+      text-shadow: 1px 1px 2px var(--shadow);
+    }
+  </style>
+</head>
+<body>
+  <h1>Origins AA Planner - Discussion in discord.gg/reverb</h1>
+  <div class="dropdowns">
+    <label for="kosSelect">KOS:</label>
+    <select id="kosSelect"></select>
+    <label for="eofSelect">EOF:</label>
+    <select id="eofSelect" disabled><option>Coming Soon</option></select>
+  </div>
+
+  <div id="treeContainer">
+    <div class="tree" id="tree"></div>
+    <div class="controls">
+      <div id="pointIndicator">0/50</div>
+      <div>
+        <button onclick="exportBuild()">Export</button>
+        <button onclick="importBuild()">Import</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const totalPoints = 50;
+    const KOS_CLASSES = [
+      "Bard","Brawler","Cleric","Crusader","Druid",
+      "Enchanter","Predator","Rogue","Shaman",
+      "Sorcerer","Summoner","Warrior"
+    ];
+    // Tooltips per class
+    const classTooltips = {
+      Bard: [
+        // Shared node
+        { name: 'Bard’s Luck', description: 'HO starter abilities can be recast in half the normal time. (Passive)' },
+        // Bladesinger branch
+        { name: 'Bladesinger’s Strength', description: 'STR +4 (per rank) (Passive)' },
+        { name: 'Turnstrike', description: 'Melee sword attack rendering you immune to AoE for 10s. (Self; CRR 0.5s|0.5s|1m; Range 50m; Resist +5%; Power 76)' },
+        { name: 'Bladeturn', description: 'Group songs that increase avoidance skills are more effective. Rank 1: +2% (Passive)' },
+        { name: 'Bladesing', description: 'Group songs that increase attributes are more effective. Rank 1: +5% (Passive)' },
+        { name: 'Bladedance', description: 'Group protected from AoE attacks that do not target them. Breaks on damage. (Self; CRR 1.5s|0.5s|10m; Duration 30s; AoE 25m; Power 190)' },
+        // Wayfarer branch
+        { name: 'Wayfarer’s Agility', description: 'AGI +5 (per rank) (Passive)' },
+        { name: 'Bump', description: 'Melee dagger attack from behind/flank, puts you into stealth. Can pickpocket humanoids. (Enemy; CRR 0.5s|0.5s|1m; Range 5m; Resist +5%; Power 95)' },
+        { name: 'Wayfarer’s Watch', description: 'Increases Parry skill. Rank 1: +4.2 (Passive)' },
+        { name: 'Poison Concoction', description: 'Weapons have chance to apply poison DoT. Rank 1: 2%, 6s intervals for 24s (Passive)' },
+        { name: 'Vanishing Act', description: 'Group enters stealth instantly, even in combat. (Group; CRR Instant|Instant|1m; Duration 2m; AoE 25m; Power 95)' },
+        // Skald branch
+        { name: 'Skald’s Stamina', description: 'STA +6 (per rank) (Passive)' },
+        { name: 'Round Bash', description: 'Roundshield attack knocking down target. Epics not affected. (Enemy; CRR 0.5s|0.5s|45s; Range 5m; Resist +5%; Power 95)' },
+        { name: 'Skald’s Defense', description: 'With roundshield, increases Block chance. Rank 1: +1% (Passive)' },
+        { name: 'Fortissimo', description: 'With roundshield, increases double attack chance. Rank 1: +7% (Passive)' },
+        { name: 'Shield Focus', description: 'Rooted but immune to short knockdowns; target immune to Root. (Group Friend; CRR Instant|0.5s|10s; Duration 1m; Range 5m)' },
+        // Harbinger branch
+        { name: 'Harbinger’s Wisdom', description: 'WIS +8 (per rank) (Passive)' },
+        { name: 'Harmonizing Shot', description: 'Bow attack reducing threat. (Enemy; CRR 1s|0.5s|30s; Range 30m; Resist +5%; Power 71)' },
+        { name: 'Harbinger’s Sonnet', description: 'Group song increasing movement speeds. Rank 1: in combat +0.8%, out +1.5% (Group; CRR 2s|0.5s|5s; Duration cancel; AoE 20m)' },
+        { name: 'Allegro', description: 'Group has improved casting times. Rank 1: -0.8% (Group; CRR 2s|0.5s|5s; Duration cancel; AoE 20m)' },
+        { name: 'Don’t Kill the Messenger', description: 'Group gains +7.5% crit chance to melee, ranged, spells, heals. (Group; CRR 2s|0.5s|5s; Duration cancel; AoE 25m)' },
+        // Minstrel branch
+        { name: 'Minstrel’s Intelligence', description: 'INT +7 (per rank) (Passive)' },
+        { name: 'Rhythm Blade', description: 'Melee rapier attack increasing multiple combat/casting skills. Rank 1: +18.5 (Enemy; CRR 0.5s|0.5s|30s; Duration 15s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Minstrel’s Aria', description: 'Increases effectiveness of group songs for combat/casting skill. Rank 1: +7% (Passive)' },
+        { name: 'Minstrel’s Melody', description: 'Increases group song effects for Attack Speed/DPS. Rank 1: +5% (Passive)' },
+        { name: 'Coin Toss', description: 'Shifts Heroic Opportunity and completes Scout symbol on expiry. Can use while stunned, not with Maestro. (Self; CRR Instant|Instant|1s)' }
+      ],
+      Cleric: [
+        // Shared node
+        { name: 'Yaulp', description: 'Increases your Attack Speed, DPS, and chance to strike twice, while lowering spellcasting skills. (Self; CRR 0.2s|0.5s|10s; Duration cancel; Power 7, plus 7 per second)' },
+        // Bishop branch
+        { name: 'Bishop’s Strength', description: 'STR +8 (per rank) (Passive)' },
+        { name: 'Skull Crack', description: 'A one-handed hammer melee attack that interrupts your target and decreases your target’s Focus, combat, and casting skills for 20 seconds. (Enemy; CRR 0.5s|0.5s|30s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Bolt of Power', description: 'Imbues your weapon with Divine power, which sometimes interrupts enemies and causes additional divine damage when striking with a weapon. Rank 1: 5% chance (Passive)' },
+        { name: 'Unwavering Resolve', description: 'Increases your Focus and Disruption skills. (Passive)' },
+        { name: 'Steadfast', description: 'Roots you in place, granting immunity to interrupt and stifle effects. Can be cast while stifled. (Self; CRR 1s|0.5s|5m; Duration 24s; Power 95, plus 23 per 2 seconds)' },
+        // Protector branch
+        { name: 'Protector’s Agility', description: 'AGI +7 (per rank) (Passive)' },
+        { name: 'Wondrous Buckling', description: 'If buckler equipped in secondary, a shield bash that mesmerizes an enemy. Breaks on damage. Epics not affected. Rank 1: 10.6s (Enemy; CRR 0.5s|0.5s|45s; Range 5m; Resist +5%; Power 95)' },
+        { name: 'Battle Fervor', description: 'Increases your combat auto-attack damage. Rank 1: DPS +5% (Passive)' },
+        { name: 'Shield Ally', description: 'Chance to shield an ally from melee attacks using your avoidance check. Rank 1: 7% (Group Friend; CRR 1s|0.5s|10s; Range 20m; Duration cancel; Power 95)' },
+        { name: 'Holy Shield', description: 'Grants an ally immunity to hostile AoE abilities that do not directly target him, for 30 seconds. (Group Friend; CRR 2s|0.5s|5m; Range 50m; Power 190)' },
+        // Deacon branch
+        { name: 'Deacon’s Stamina', description: 'STA +5 (per rank) (Passive)' },
+        { name: 'Hammer Smite', description: 'A two-handed hammer attack that Stuns, Blurs vision, throws back, and knocks down target. Epics not affected. (Enemy; CRR 0.5s|0.5s|45s; Range 5m; Resist +5%; Power 95)' },
+        { name: 'Severe Judgement', description: 'Increases your chance of critical melee damage. Rank 1: +12.5% (Passive)' },
+        { name: 'Inspired Renewal', description: 'Increases your chance of critical healing. Rank 1: +2% (Passive)' },
+        { name: 'Divine Aura', description: 'Grants immunity to most damage sources for 10s (up to 30 hits). Damage >50% HP not prevented. (Self; CRR 1.5s|0.5s|15m; Power 95)' },
+        // Exorcist branch
+        { name: 'Exorcist’s Wisdom', description: 'WIS +4 (per rank) (Passive)' },
+        { name: 'Turn Undead', description: 'If symbol equipped in secondary, inflicts high divine damage on undead. Unresistable. (Enemy; CRR 3s|0.5s|1m; Range 35m; AoE 15m; Power 385)' },
+        { name: 'Blessed Armament', description: 'Imbues weapons with chance to deal divine damage to undead. Rank 1: 12% (Passive)' },
+        { name: 'Divine Soothing', description: 'Reduces Hate Gain with enemies. Rank 1: -1.3% (Passive)' },
+        { name: 'Protection from Undead', description: 'Provides group limited immunity from undead. Damage >50% HP not prevented. (Group; CRR 3s|0.5s|10m; Duration 16s; AoE 25m; Power 142)' },
+        // Arbiter branch
+        { name: 'Arbiter’s Intelligence', description: 'INT +6 (per rank) (Passive)' },
+        { name: 'Divine Castigation', description: 'If two-handed staff equipped, inflicts divine damage. (Enemy; CRR 1.5s|0.5s|45s; Range 35m; Resist -11%; Power 115)' },
+        { name: 'Pact of the Faithful', description: 'Enhances your chance for critical spell damage. Rank 1: +3.5% (Passive)' },
+        { name: 'Facile Grace', description: 'Decreases spells’ casting time. Rank 1: -1.3% (Passive)' },
+        { name: 'Divine Recovery', description: 'Reduces spell/combat casting (-50%) and recovery (-33%) times for group. (Group; CRR 0.2s|Instant|5m; AoE 50m; Duration 24s; Power 67)' }
+      ],
+      Crusader: [
+        // Shared node
+        { name: 'Concenter', description: 'Increases your Focus skill +42 while under 50% health. (Passive)' },
+        // Avenger branch
+        { name: 'Avenger’s Strength', description: 'STR +4 (per rank) (Passive)' },
+        { name: 'Swiftaxe', description: 'A melee axe attack that increases your Attack Speed if it strikes an enemy. Rank 1: +17.6% (Enemy; CRR 0.5s|0.5s|30s; Duration 20s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Avenger’s Relentlessness', description: 'Increases your Attack Speed. Rank 1: +2.2% (Passive)' },
+        { name: 'Idolic Axe', description: 'Increases your Hate Gain by all enemies. Rank 1: +1.3% (Passive)' },
+        { name: 'Avenging Invigoration', description: 'Improves the recast timers and casting speeds of all of your combat arts, spells, and abilities by 10%. (Passive)' },
+        // Cavalier branch
+        { name: 'Cavalier’s Agility', description: 'AGI +7 (per rank) (Passive)' },
+        { name: 'Joust', description: 'A melee spear attack that does double piercing damage if executed from horseback. (Enemy; CRR 0.5s|0.5s|30s; Range 7.5m; Resist +5%; Power 71)' },
+        { name: 'Trample', description: 'Your auto-attacks have a chance of attacking up to 4 nearby enemies in front of you. This bonus is increased while on horseback. Rank 1: +2.2%, +4.4% if on horse (Self; CRR 2s|0.5s|5s; Duration cancel)' },
+        { name: 'Higher Ground', description: 'Increases your Defense skill. While on horseback, you have a chance to become immune to some knockdown effects for a short duration after every melee attack. Rank 1: +1.6 Defense, 1% chance to avoid knockdown for 4 seconds (Passive)' },
+        { name: 'Lance', description: 'A powerful melee spear attack that deals additional damage over time (every 4 seconds for 36 seconds) and Snares opponent if executed on horseback (-39% movement for 24 seconds; 5% chance to dispel if hit). Epics not affected. (Enemy; CRR 0.5s|0.5s|1m; Range 7.5m; Resist +5%; Power 128)' },
+        // Champion branch
+        { name: 'Champion’s Stamina', description: 'STA +5 (per rank) (Passive)' },
+        { name: 'Hammer Ground', description: 'An AoE melee hammer attack that deals little damage, but causes a tremor that knocks back anyone struck by it. Increased ranks increase the Stun duration. Epics not affected. Rank 1: 1.8 seconds (Self; CRR 1s|0.5s|1m; AoE 7.5m (max 8 targets); Resist +5%; Power 95)' },
+        { name: 'Fervor of Faith', description: 'Increases your chance of critical melee damage. Rank 1: +2.8% (Passive)' },
+        { name: 'Champion’s Bulwark', description: 'Increases your maximum health. Rank 1: +0.5% (Passive)' },
+        { name: 'Divine Aura', description: 'Grants you immunity to most damage sources for 10 seconds (up to 30 attacks). Damage in excess of 50% of your health total is not prevented. (Self; CRR 1.5s|0.5s|15m; Power 67)' },
+        // Knight branch
+        { name: 'Knight’s Wisdom', description: 'WIS +6 (per rank) (Passive)' },
+        { name: 'Combat Leadership', description: 'If sword equipped in your primary, each in your group will deal additional Slashing damage on his next attack or spell. (Group; CRR 1s|0.5s|1m; Duration 1m; AoE 25m; Power 67)' },
+        { name: 'Battle Leadership', description: 'Increases the combat and casting skills of your group. Rank 1: Increases Ministration, Piercing, Ordination, Crushing, Disruption, Subjugation, and Slashing of group members (within area) +4.2 (Group; CRR 2s|0.5s|10s; Duration cancel; AoE 20m)' },
+        { name: 'Aura of Leadership', description: 'Increases the in-combat health regeneration of your group. Rank 1: +8.4 per tick (Group; CRR 2s|0.5s|10s; Duration cancel; AoE 20m)' },
+        { name: 'Fearless Morale', description: 'You gain immunity to fear, and all group members gain 1% more to their melee damage, spell damage, health replenishment, ward amounts, and casting and recast timers. (Group; CRR 2s|0.5s|10s; Duration cancel; AoE 20m)' },
+        // Legionnaire branch
+        { name: 'Legionnaire’s Intelligence', description: 'INT +8 (per rank) (Passive)' },
+        { name: 'Legionaire’s Smite', description: 'If symbol equipped in secondary, you can quickly smite enemies with magic damage. (Enemy; CRR 1s|0.5s|20s; Range 30m; Resist -11%; Power 71)' },
+        { name: 'Legionaire’s Wrath', description: 'Increases your chance of critical spell damage. Rank 1: +12.5% (Passive)' },
+        { name: 'Legionaire’s Mercy', description: 'Increases your chance of critical healing. Rank 1: +7.8% (Passive)' },
+        { name: 'Reflect', description: 'If symbol equipped in secondary, reflects the next profession spell that targets you. (Self; CRR 1s|0.5s|1m; Duration cancel; Power 71)' }
+      ],
+      Druid: [
+        // Shared node
+        { name: 'Shapeshift', description: 'You shapeshift into an animal form, depending on the weapon you have equipped. (Self; CRR 3s|0.5s|Instant; Duration cancel). Sword: Tiger (+10% Slashing bite attack); Staff: Treant (+3.9% Heal Crit); Hammer: Winter wolf (+6.9% Spell Crit)' },
+        // Naturalist branch
+        { name: 'Naturalist’s Strength', description: 'STR +8 (per rank) (Passive)' },
+        { name: 'Nature Blade', description: 'A melee sword attack that increases your Attack Speed if it hits. Rank 1: +22% (Enemy; CRR 0.5s|0.5s|30s; Duration 20s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Wild Ferocity', description: 'Increases your chance at attacking twice with every attack. Rank 1: +5% (Passive)' },
+        { name: 'Natural Boon', description: 'You have a chance to heal your group with every successful melee attack. Rank 1: 2% (Passive)' },
+        { name: 'Primordial Strike', description: 'A melee attack that deals moderate damage and refreshes quickly. (Enemy; CRR 0.5s|0.5s|10s; Range 5m; Resist +5%; Power 71)' },
+        // Animalist branch
+        { name: 'Animalist’s Agility', description: 'AGI +7 (per rank) (Passive)' },
+        { name: 'Calm Animals', description: 'If buckler equipped in secondary, mesmerizes target encounter (if animals). Breaks on damage. Doesn’t affect Epics. Increased ranks increase duration. (Enemy; CRR 1.5s|0.5s|30s; Range 25m; AoE 10m; Resist +5%; Power 128)' },
+        { name: 'Charm Animal', description: 'Charms target animal. Target can periodically resist. Higher ranks reduce resist chance. Epics not affected. (Enemy; CRR 6s|0.5s|Instant; Range 25m; Resist +5%; Concentration 3)' },
+        { name: 'Wild Regeneration', description: 'Lowers duration of regen spells, allowing faster healing intervals. Rank 1: -2% (Passive)' },
+        { name: 'Tortoise Shell', description: 'If buckler equipped in secondary, Stuns you and makes group immune to non-direct AoEs when close. (Self; CRR 0.5s|0.5s|2m; Duration 30s; Range 3m; Max Targets 6; Power 95)' },
+        // Serenicist branch
+        { name: 'Serenicist’s Stamina', description: 'STA +5 (per rank) (Passive)' },
+        { name: 'Serene Symbol', description: 'If symbol equipped in secondary, dispels elemental/noxious buffs on target. Drains power per buff removed. (Enemy; CRR 1s|0.5s|30s; Range 15m; Resist +5%)' },
+        { name: 'Serene Knowledge', description: 'Beneficial spells may grant immunity to Stun/Knockdown briefly. Rank 1: 1% chance, 3s (Passive)' },
+        { name: 'Serene Focus', description: 'Increases your chance at critical healing. Rank 1: +2% (Passive)' },
+        { name: 'Serenity', description: 'Renders you immune to Stun and some Knockdown. Castable while Stunned. (Self; CRR 0.5s|0.5s|5m; Duration 30s; Power 190)' },
+        // Hierophant branch
+        { name: 'Hierophant’s Wisdom', description: 'WIS +4 (per rank) (Passive)' },
+        { name: 'Hierophant Grasp', description: 'Melee staff attack that damages and Roots enemies near you, unroots you if it hits. Root breaks 10% per damage tick. (Self; CRR 1s|0.5s|1m; Duration 7s; AoE 7.5m; Resist +5%; Power 142)' },
+        { name: 'Hierophant Movement', description: 'Increases your in-combat movement speed. Rank 1: +1.3% (Passive)' },
+        { name: 'Hierophant Obfuscation', description: 'You accrue less Hate Gain with enemies. Rank 1: -1.3% (Passive)' },
+        { name: 'Rebirth', description: 'Automatically resurrects you 5 seconds after death. (Self; CRR 2s|0.5s|15m; Duration cancel; Power 134)' },
+        // Stormcaller branch
+        { name: 'Stormcaller’s Intelligence', description: 'INT +6 (per rank) (Passive)' },
+        { name: 'Thunderspike', description: 'A melee hammer attack that also deals magic damage. (Enemy; CRR 0.5s|0.5s|30s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Stormcaller’s Control', description: 'Increases your chance for critical spell damage. Rank 1: +3.5% (Passive)' },
+        { name: 'Stormvision', description: 'Increases your Focus and Disruption skills. (Passive)' },
+        { name: 'Infusion', description: 'Casting a beneficial spell on an ally deals magic damage to nearby enemy. Costs power per trigger. (Self; CRR 2s|0.5s|10s; Duration cancel; Power 95)' }
+      ],
+      Enchanter: [
+        // Shared node
+        { name: 'Mana Flow', description: 'You sacrifice 10% of your health and power. 30 seconds later, you and your target regain that power. (Raid or Group Friend; CRR 2s|0.5s|1m; Range 30m)' },
+        // Spellblade branch
+        { name: 'Spellblade’s Strength', description: 'STR +8 (per rank) (Passive)' },
+        { name: 'Spellblade’s Counter', description: 'If dagger equipped in primary, a melee attack that interrupts and cannot be parried, riposted, blocked, or deflected. (Enemy; CRR 0.5s|0.5s|20s; Range 5m; Resist +5%; Power 47)' },
+        { name: 'Spellblade’s Reflexes', description: 'Chance to riposte melee attacks and increases Piercing damage. Rank 1: 0.8% riposte chance (Passive)' },
+        { name: 'Quickening', description: 'Increases chance to double auto-attack and boosts damage. Rank 1: Double Attack +5%, DPS +5% (Passive)' },
+        { name: 'Counterblade', description: 'Melee attack that counters the next spell cast if it hits. (Enemy; CRR 0.5s|0.5s|20s; Duration 10s; Range 30m; Resist +5%; Power 95)' },
+        // Chronomancer branch
+        { name: 'Chronomancer’s Agility', description: 'AGI +6 (per rank) (Passive)' },
+        { name: 'Chronosiphoning', description: 'If nothing equipped in secondary, slows target’s casting speed, boosts yours. Rank 1: ±17.6% (Enemy; CRR 0.5s|0.5s|30s; Duration 30s; Range 30m; Resist -11%; Power 47)' },
+        { name: 'Chonomotion', description: 'Increases Defense and reduces casting recovery time. Rank 1: -4% (Passive)' },
+        { name: 'Chronology', description: 'Reduces casting timers. Rank 1: -1.3% (Passive)' },
+        { name: 'Perpetuality', description: 'Each spell cast increases casting speed up to five times. Each iteration -12% casting time (duration 2.8s to 2s). (Passive)' },
+        // Empathic branch
+        { name: 'Empathic’s Stamina', description: 'STA +7 (per rank) (Passive)' },
+        { name: 'Touch of Empathy', description: 'If dual wield/1H staff in primary, reduces hate on ally. (Group Friend; CRR 0.5s|0.5s|30s; Range 5m; Power 44)' },
+        { name: 'Empathic Aura', description: 'Increases group crit healing chance. Rank 1: +1.7% (Group; CRR 2s|0.5s|10s; AoE 20m)' },
+        { name: 'Empathic Soothing', description: 'Non-fighter group members gain less Hate. Rank 1: -0.9% (Group AoE; CRR 2s|0.5s|10s; AoE 20m)' },
+        { name: 'Sever Empathy', description: 'Target and encounter won’t respond to other calls for help. Reduces Threat. Epics unaffected. (Enemy; CRR 0.5s|0.5s|45s; Duration 30s; Range 35m; AoE 25m; Power 67)' },
+        // Dreamweaver branch
+        { name: 'Dreamweaver’s Wisdom', description: 'WIS +5 (per rank) (Passive)' },
+        { name: 'Daydream', description: 'If symbol equipped in secondary, reduces encounter hate radius and hate. Rank 1: 10.6s; Resist -11% (Enemy; CRR 1s|0.5s|30s; Range 35m; AoE 20m; Power 95)' },
+        { name: 'Dream Barrier', description: 'Increases spell resistances. (Passive)' },
+        { name: 'Dreamwaver’s Trance', description: 'Increases Focus and Subjugation skills. (Passive)' },
+        { name: 'Hypnosis', description: '16-second charm, no concentration. Epics not affected. (Enemy; CRR 3s|0.5s|45s; Range 25m; Resist +5%; Power 192)' },
+        // Savant branch
+        { name: 'Savant’s Intelligence', description: 'INT +4 (per rank) (Passive)' },
+        { name: 'Nullifying Staff', description: 'Two-handed staff attack that lowers mental resistance. (Enemy; CRR 0.5s|0.5s|30s; Duration 10s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Savant’s Insight', description: 'Chance to become immune to interrupt after taking damage. Rank 1: 4%, 3s (Passive)' },
+        { name: 'Savant’s Channeling', description: 'Increases Damage Spell Crit Chance. Rank 1: +1.5% (Passive)' },
+        { name: 'Volatile Magic', description: 'While under 30% power, spell damage is +30%. (Passive)' }
+      ],
+      Predator: [
+        // Shared node
+        { name: 'Bounty', description: 'You receive a bounty for the next enemy you kill (you strike the death blow). (Self; CRR Instant|0.5s|3m; Duration 3m)' },
+        // Blademaster branch
+        { name: 'Blademaster’s Strength', description: 'STR +4 (per rank) (Passive)' },
+        { name: 'Bladed Opening', description: 'If sword equipped in primary, does additional high-damage Slashing attack if target is above 80% health. (Enemy; CRR 0.5s|0.5s|45s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Intercepting Blades', description: 'Increases your Parry skill. (Passive)' },
+        { name: 'Precision of Blades', description: 'Increases your critical melee damage chance. Rank 1: +1.7% (Passive)' },
+        { name: 'Perfectionist', description: 'Reduces recast time by 50% and increases damage by 15% for attack-based CAs with 2m+ recast. (Passive)' },
+        // Archer branch
+        { name: 'Archer’s Agility', description: 'AGI +5 (per rank) (Passive)' },
+        { name: 'Point Blank Shot', description: 'Short-ranged bow attack that knocks down the target. Epics not affected. (Enemy; CRR 1s|0.5s|1m; Range 5m; Resist +5%; Power 95)' },
+        { name: 'Fitness', description: 'Increases your in-combat movement speed. Rank 1: +1.3% (Passive)' },
+        { name: 'Ranged Expertise', description: 'Increases your Ranged Crit Chance. Rank 1: +2.8% (Passive)' },
+        { name: 'Poise', description: 'Reduces casting time of all combat arts by 35%. (Passive)' },
+        // Hunter branch
+        { name: 'Hunter’s Stamina', description: 'STA +6 (per rank) (Passive)' },
+        { name: 'Spinning Spear', description: 'Melee spear attack that hits up to 8 enemies. (Self; CRR 1s|0.5s|1m; AoE 7.5m; Resist +5%; Power 95)' },
+        { name: 'Conditioning', description: 'Increase your maximum health. Rank 1: +1% (Passive)' },
+        { name: 'Surrounding Attacks', description: 'Chance to hit up to 4 nearby enemies with auto-attacks. Rank 1: +2% (Self; CRR 2s|0.5s|5s; Duration cancel)' },
+        { name: 'Impenetrable', description: 'Parry all combat attacks for 6 seconds. Cannot use other CAs during. (Self; CRR 0.2s|6s|2m; Duration 6s; Power 67)' },
+        // Prowler branch
+        { name: 'Prowler’s Wisdom', description: 'WIS +8 (per rank) (Passive)' },
+        { name: 'Placating Strike', description: 'Melee rapier attack that lowers target’s hate. (Enemy; CRR 0.5s|0.5s|30s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Prowler’s Cunning', description: 'Increases your Defense skill. (Passive)' },
+        { name: 'Obfuscation', description: 'Reduces casting/recast times of Stealth/Stalk abilities. Rank 1: -12.5% (Passive)' },
+        { name: 'Smoke Bomb', description: 'Interrupts enemies, puts you into stealth, reduces hate. (Enemy; CRR 0.5s|0.5s|3m; Duration 0.1s, then Shroud 36s; AoE 15m; Resist +5%; Power 95)' },
+        // Nightshade branch
+        { name: 'Nightshade’s Intelligence', description: 'INT +7 (per rank) (Passive)' },
+        { name: 'Poison Combination', description: 'Dagger attack on poisoned target. Reduces target’s poison resist for 24s. (Enemy; CRR 0.5s|0.5s|30s; Range 5m; Resist +5%; Power 47)' },
+        { name: 'Neurotoxic Coating', description: 'When hit with melee, attacker suffers stat/skill debuffs for 10s. (Self; CRR 2s|0.5s|5s; Duration cancel)' },
+        { name: 'Toxic Expertise', description: 'Increases crit chance with DoT and poison CAs. Rank 1: +6.5% (Passive)' },
+        { name: 'Intoxication', description: 'On next melee hit, applies poison DoT and stat/skill debuffs. (Self; CRR 3s|0.5s|2m; Duration 2m)' }
+      ],
+      Rogue: [
+        // Shared node
+        { name: 'Pick Pocket', description: 'Attempt to steal coin from a humanoid target’s back. Can’t repeat on same target. (Enemy; CRR 0.2s|0.5s|30s; Range 5m)' },
+        // Blackguard branch
+        { name: 'Blackguard’s Strength', description: 'STR +4 (per rank) (Passive)' },
+        { name: 'Torporous Strike', description: 'Melee sword attack reducing target’s crit damage/heal chance. Rank 1: -3.5% (Enemy; CRR 0.5s|0.5s|30s; Duration 30s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Blackguard’s Defense', description: 'Increases your Defense skill. (Passive)' },
+        { name: 'Blackguard’s Luck', description: 'Increases critical melee damage chance. Rank 1: +1.7% (Passive)' },
+        { name: 'Traumatic Swipe', description: 'Increases recast time of target’s abilities by 50%. (Enemy; CRR 0.5s|0.5s|30s; Duration 30s; Range 5m; Resist +5%; Power 95)' },
+        // Pirate branch
+        { name: 'Pirate’s Agility', description: 'AGI +5 (per rank) (Passive)' },
+        { name: 'Walk the Plank', description: 'Rapier attack spins target exposing its back. Epics not affected. (Enemy; CRR 0.5s|0.5s|30s; Duration 1.8s; Range 10m; Power 71)' },
+        { name: 'Commandeer', description: 'Increases movement speed in and out of combat. Rank 1: +1.3% (Passive)' },
+        { name: 'Avast Ye', description: 'Chance at additional melee attacks from flank/behind. Rank 1: 2% (Passive)' },
+        { name: 'Sailwind', description: 'Reduces recovery and casting times by 25%. (Passive)' },
+        // Mercenary branch
+        { name: 'Mercenary’s Stamina', description: 'STA +6 (per rank) (Passive)' },
+        { name: 'Swear', description: 'With roundshield, increases hate of all enemies in encounter. (Enemy; CRR 0.2s|0.5s|20s; AoE 15m; Range 15m; Resist -21%; Power 88)' },
+        { name: 'Conditioning', description: 'Increases maximum health. Rank 1: +1% (Passive)' },
+        { name: 'Opportunistic Cover', description: 'With roundshield, increases auto-attack DPS. Rank 1: +7% (Passive)' },
+        { name: 'Formation', description: 'While in defensive stance, gain shield block, health, resists, and chance to boost hate. (Passive)' },
+        // Fencer branch
+        { name: 'Fencer’s Wisdom', description: 'WIS +8 (per rank) (Passive)' },
+        { name: 'Lunge Reversal', description: 'If no secondary weapon, return melee attack after defensive move. (Self; CRR 1s|0.5s|20s; Duration cancel)' },
+        { name: 'Freehand Reversal', description: 'Without secondary, increased double-attack, riposte, and parry chances. (Passive)' },
+        { name: 'Unencumberence', description: 'Without secondary, chance to strike twice on auto-attacks. Rank 1: 6.5% (Passive)' },
+        { name: 'Coule', description: 'Increases Slashing, Defense, Piercing, Ranged, Parry. Rank 1: +16.8 (Passive)' },
+        // Thief branch
+        { name: 'Thief’s Intelligence', description: 'INT +7 (per rank) (Passive)' },
+        { name: 'Boot Dagger', description: 'Dagger attack placing you in stealth if it hits. (Enemy; CRR 0.5s|0.5s|30s; Range 5m; Resist +5%; Power 47)' },
+        { name: 'Thief’s Prowess', description: 'Increases chance to reduce hate when hit. (Self; CRR 2s|0.5s|5s; Duration cancel)' },
+        { name: 'Evasiveness', description: 'Reduces Hate Gain with enemies. Rank 1: -1.3% (Self; CRR 2s|0.5s|5s; Duration cancel)' },
+        { name: 'Feign', description: 'Feign death with 100% success; avoid non-targeted AoE. (Self; CRR Instant|0.5s|3m; Duration 30s)' }
+      ],
+      Shaman: [
+        // Shared node
+        { name: 'Summon Spirit Companion', description: 'Summons a spirit companion to aid you. (Self; CRR 10s|0.5s|10s; Duration cancel; Power 67)' },
+        // Prophet branch
+        { name: 'Prophet’s Strength', description: 'STR +8 (per rank) (Passive)' },
+        { name: 'Leg Bite', description: 'If dual wield or spear equipped in primary, the spirit pet’s next attack will interrupt the target, and cause piercing DoT every 4 seconds for 24s. (Pet; CRR Instant|Instant|30s; Duration 20s; Power 23)' },
+        { name: 'Aura of Haste', description: 'Increases your group’s Attack Speed. (Can’t be cast in combat.) Rank 1: +2% (Pet; CRR 2s|0.5s|5s)' },
+        { name: 'Aura of Warding', description: 'Every time your pet is struck, there is a chance that a group ward will be cast on the party. Rank 1: 3%; Duration 30 seconds (Pet; CRR 2s|0.5s|10s; Duration cancel; Power 95)' },
+        { name: 'Spiritual Foresight', description: 'Your pet is immune to AoE attacks that don’t target it directly. Each time it strikes an enemy in combat, there is a 20% chance the rest of your group becomes similarly immune for 5 seconds. (Pet; CRR 2s|0.5s|5s; Duration cancel)' },
+        // Chieftain branch
+        { name: 'Chieftain’s Agility', description: 'AGI +7 (per rank) (Passive)' },
+        { name: 'Phalanx', description: 'A two-handed spear attack that Roots the target in place on a successful hit (10% chance to dispel when target takes damage). Epics not affected. (Enemy; CRR 0.5s|0.5s|30s; Duration 7s; Range 7.5m; Resist +5%; Power 71)' },
+        { name: 'Ancestral Authority', description: 'Increases your critical melee damage chance. Rank 1: +12.5% (Passive)' },
+        { name: 'Ancestral Spirits', description: 'Increases your critical healing chance. Rank 1: +2% (Passive)' },
+        { name: 'Tribal Rage', description: 'When enraged, your Attack Speed increases 35% and you double attack on 35% of your attacks. You can be enraged if: you hit in melee combat (10% chance), you are hit (30% chance), or you strike a death blow (100% chance). Rage lasts 10 sec. (Passive)' },
+        // Witchdoctor branch
+        { name: 'Witchdoctor’s Stamina', description: 'STA +5 (per rank) (Passive)' },
+        { name: 'Crippling Bash', description: 'A buckler attack that knocks down enemy that it strikes. If your pet strikes enemy while it is knocked down, its spell resistances are severely reduced for a short duration. Epics not affected. Rank 1: Knockdown 4 seconds; resistance penalty 20 seconds (Enemy; CRR 0.5s|0.5s|45s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Infective Bites', description: 'Every time your pet strikes an enemy, its recast and casting times are slowed. Rank 1: slows by 2% for 20 seconds (Pet; CRR 2s|0.5s|5s; Duration cancel)' },
+        { name: 'Herbal Expertise', description: 'Basic single-target cure spells have reduced timers, and cost less power. Rank 1: casting -12.5%; recovery and recast -4%; Power -6% (Passive)' },
+        { name: 'Coagulate', description: 'Greatly increases your target’s health while unconscious, so he can take more damage before actually dying. (Group Friend; CRR 2s|0.5s|5s; Duration cancel; Range 20m)' },
+        // Ritualist branch
+        { name: 'Ritualist’s Wisdom', description: 'WIS +4 (per rank) (Passive)' },
+        { name: 'Ritual', description: 'If symbol equipped in secondary, boosts your next healing spell. Rank 1: +20% (Self; CRR Instant|Instant|1m; Duration 12s)' },
+        { name: 'Ritualistic Aggression', description: 'Increases your pet’s chance to strike for additional Slashing damage in melee combat. Rank 1: +3% (Pet; CRR 1s|0.5s|10s; Duration cancel)' },
+        { name: 'Ritual of Absolution', description: 'Each time your pet hits in melee combat, this gives a chance to reduce its target’s hate toward you. Rank 1: 2% (Pet; CRR 2s|Instant|5s; Duration cancel)' },
+        { name: 'Ritual of Alacrity', description: 'Increases ally’s casting, recovery, and recast speeds by 33% for 30 seconds. (Can’t cast it on yourself.) (Group Friend; CRR 1s|0.5s|3m; Range 10m; Power 190)' },
+        // Blighter branch
+        { name: 'Blighter’s Intelligence', description: 'INT +6 (per rank) (Passive)' },
+        { name: 'Rabies', description: 'If staff equipped in primary, enemies near your pet are infected with rabies, and suffer DoT disease. Rank 1: 16 seconds (Pet; CRR 1s|0.5s|45s; Power 95)' },
+        { name: 'Virulence', description: 'Whenever your pet attacks or is attacked, its enemy’s attributes are reduced. Rank 1: -1.5% for 24 seconds (Pet; CRR 2s|0.5s|5s; Duration cancel)' },
+        { name: 'Immunities', description: 'Increases the resistance of allies near your pet to non-physical damage. Your pet also gains a large chance to outright resisting spells. (Pet; CRR 2s|0.5s|10s; Power 67)' },
+        { name: 'Scourge', description: 'Sacrifices your pet. All enemies near the pet lose beneficial effects (up to 97 total levels). (Pet; CRR 2s|0.5s|1m; Power 190)' }
+      ],
+      Sorcerer: [
+        // Shared node
+        { name: 'Summon Familiar', description: 'Summons a familiar to aid you, depending on primary equipped weapon. Familiar can’t fight, but buffs you. (Self; CRR 4s|0.5s|20s; Duration cancel; Power 128)\n• dagger: minor drake (Rank 1: recast times -2%)\n• two-handed staff: arcane tome (Rank 1: critical hit +2.9%)\n• dual wield or one-handed staff: lesser gargoyle (Rank 1: Hate Gain -2.5%)' },
+        // Invoker branch
+        { name: 'Invoker’s Strength', description: 'STR +8 (per rank) (Passive)' },
+        { name: 'Static Discharge', description: 'If two-handed staff equipped, fires a cone of lightning in a frontal arc that can strike up to 4 enemies. (Self; CRR 1.5s|0.5|45s; AoE 15m; Resist -11%; Power 96)' },
+        { name: 'Deflecting Staff', description: 'Chance to parry incoming attacks. Rank 1: 1% chance. (Passive)' },
+        { name: 'Spell Expertise', description: 'An improved chance to critical hit with offensive spells. Rank 1: +1.5% (Passive)' },
+        { name: 'Catalyst', description: 'Sacrifices health to guarantee that your next spell scores a critical hit. (Self; CRR 1s|Instant|1m; Duration 1 minute)' },
+        // Spellshifter branch
+        { name: 'Spellshifter’s Agility', description: 'AGI +6 (per rank) (Passive)' },
+        { name: 'Ambidextrous Casting', description: 'If dagger equipped in primary, melee attack that can be executed while casting a spell. It interrupts the target if it hits. (Enemy; CRR 0.5s|Instant|20s; Range 5m; Resist +5%; Power 38)' },
+        { name: 'Shift Momentum', description: 'Increases your base movement speed in and out of combat. Rank 1: +1.3% (Passive)' },
+        { name: 'Spellshaping', description: 'Improved casting speed. Rank 1: +1.3% (Passive)' },
+        { name: 'Spellshifting', description: 'All your recast timers are 12% shorter. (Passive)' },
+        // Battlemage branch
+        { name: 'Battlemage’s Stamina', description: 'STA +7 (per rank) (Passive)' },
+        { name: 'Static Shield', description: 'If symbol equipped in secondary, enemies who strike you in melee will receive Static Discharge. (Passive)' },
+        { name: 'Battlemage Armor', description: 'Increases your physical damage resistance. (Passive)' },
+        { name: 'Battlemage’s Fervor', description: 'Improves your Focus and Disruption skills. (Passive)' },
+        { name: 'Manashield', description: 'For 30 seconds, 100% of health damage changes to power loss. (Self; CRR 1s|0.5s|90s)' },
+        // Sage branch
+        { name: 'Sage’s Wisdom', description: 'WIS +5 (per rank) (Passive)' },
+        { name: 'Freehand Sorcery', description: 'If nothing equipped in secondary, your next damage spell will be boosted. Rank 1: +16% damage (Self; CRR Instant|Instant|1m; Duration 12 seconds)' },
+        { name: 'Ward of Sages', description: 'If nothing equipped in secondary, gives you a regenerating ward that absorbs damage. (Self; CRR 2s|0.5s|5s; Duration cancel)' },
+        { name: 'Brainstorm', description: 'If nothing equipped in secondary, boosts base damage of your spells. Rank 1: +1% (Passive)' },
+        { name: 'Sagacity', description: 'Reduces power cost of all spells and abilities by 12%. (Passive)' },
+        // Arcanist branch
+        { name: 'Arcanist’s Intelligence', description: 'INT +4 (per rank) (Passive)' },
+        { name: 'Confounding Staff', description: 'If dual wield or one-handed staff equipped in primary, you make a distracting attack that damages the target and reduces its hate towards you. (Enemy; CRR 0.5s|0.5s|30s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Arcanic Evasion', description: 'Increases your Defense skill. (Passive)' },
+        { name: 'Arcanic Avoidance', description: 'Reduces your Hate Gain. Rank 1: -1.3% (Passive)' },
+        { name: 'Concussive Blasts', description: 'For 24 seconds, when you cast a spell, this spell will cast Concussive on your target, decreasing its Threat. (Self; CRR Instant|0.5s|2.5m; Power 95)' }
+      ],
+      Summoner: [
+        // Shared node
+        { name: 'Possess Minion', description: 'Control your pet’s movement, attack, and spell use from its perspective. (Pet; CRR 3s|0.5s|3m; Duration 30s; Power 128)' },
+        // Theurgist branch
+        { name: 'Theurgist’s Strength', description: 'STR +8 (per rank) (Passive)' },
+        { name: 'Animated Dagger', description: 'If dagger in primary, summons animated dagger to attack. Rank 1: 13.2s (Enemy; CRR 0.5s|0.5s|30s; Range 25m; Power 128)' },
+        { name: 'Parrying', description: 'Parries incoming attacks. Rank 1: 1% (Passive)' },
+        { name: 'Wild Channeling', description: 'Increases Damage Spell Crit Chance. Rank 1: +1.5% (Passive)' },
+        { name: 'Implode', description: 'Sacrifices pet for AoE magic damage and halves next summon cast time. (Pet; CRR 0.5s|0.5s|1m; Duration 10s; AoE 15m)' },
+        // Cabalist branch
+        { name: 'Cabalist’s Agility', description: 'AGI +6 (per rank) (Passive)' },
+        { name: 'Distracting Strike', description: 'Air/shadow pet reduces target’s hate toward you. (Pet; CRR Instant|0.5s|30s; Duration 30s; Power 29)' },
+        { name: 'Cabalist’s Cover', description: 'Pet may avoid damage for you after your avoidance check. Rank 1: 4% (Pet; CRR 2s|0.5s|5s; AoE 20m)' },
+        { name: 'Minion’s Zeal', description: 'Air/shadow pet crit melee chance +1.7% (Pet; CRR 2s|0.5s|3s; Duration cancel)' },
+        { name: 'Shadowstep', description: 'Air/shadow pet teleports instantly to target. (Pet; CRR Instant|Instant|20s; Power 23)' },
+        // Perceptor branch
+        { name: 'Perceptor’s Stamina', description: 'STA +7 (per rank) (Passive)' },
+        { name: 'Shockwave', description: 'Fighter pet knocks down nearby enemies. Epics not affected. (Pet; CRR Instant|Instant|1m; Duration 1m; Power 118)' },
+        { name: 'Perceptor’s Bodyguard', description: 'Pet intercepts physical damage. 20% chance, absorbs 92%, you absorb 1%. (Pet; CRR 2s|0.5s|5s; AoE 20m)' },
+        { name: 'Perceptor’s Command', description: 'Fighter pet absorbs some of your hate. Rank 1: 1% (Pet; CRR 2s|Instant|5s; Duration cancel)' },
+        { name: 'Unflinching Servant', description: 'Fighter pet immune to knockbacks/stuns/AoEs, cannot use combat arts. (Pet; CRR 5s|0.5s|1m; Duration cancel)' },
+        // Animist branch
+        { name: 'Animist’s Wisdom', description: 'WIS +5 (per rank) (Passive)' },
+        { name: 'Animist’s Transference', description: 'Staff in primary, transfers pet health to ally. (Friend; CRR 2s|0.5s|45s; Range 20m; Power 133)' },
+        { name: 'Minion’s Barrier', description: 'Increases pet Defense skill. Rank 1: +1.7 (Pet; CRR 2s|0.5s|5s; Duration cancel)' },
+        { name: 'Minion’s Uproar', description: 'Pet Slashing, Piercing, Crushing +4.2 | Focus, Disruption +5.2 (Pet; CRR 2s|0.5s|5s; Duration cancel)' },
+        { name: 'Animist Bond', description: 'Pet damage converts to power loss. 100% of damage > 50% power loss. (Pet; CRR 1s|0.5s|2m; Duration 30s)' },
+        // Magician branch
+        { name: 'Magician’s Intelligence', description: 'INT +4 (per rank) (Passive)' },
+        { name: 'Magic Leash', description: 'Pet’s target hate is decreased. (Pet; CRR Instant|0.5s|30s; Power 44)' },
+        { name: 'Minion’s Warding', description: 'Pet intercepts damage. 20% chance, absorbs 91%, you absorb 1%. (Pet; CRR 2s|0.5s|5s; AoE 20m)' },
+        { name: 'Arcane Minion', description: 'Pet gains spell and attack haste. Rank 1: +1.3% (Pet; CRR 2s|0.5s|5s; Duration cancel; Power 95)' },
+        { name: 'Empower Servant', description: 'Pet replenishes power and heals from power loss. (Pet; CRR 2s|0.5s|10s; Duration cancel)' }
+      ],
+      Warrior: [
+        // Shared node
+        { name: 'Bind Wound', description: 'Restores 25% health out of combat. If melee hit during duration, all combat arts deal +10% damage for 20s. (Self; CRR 4s|0.5s|2m; Duration 3m)' },
+        // Executioner branch
+        { name: 'Executioner’s Strength', description: 'STR +4 (per rank) (Passive)' },
+        { name: 'Executioner’s Wrath', description: 'Melee axe attack boosting crit chance for next attack. Rank 1: +59% (Enemy; CRR 0.5s|0.5s|30s; Duration 10s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Weapon Expertise', description: 'Increases chance at critical melee damage. Rank 1: +2.8% (Passive)' },
+        { name: 'Executioner’s Anger', description: 'Increases Hate Gain. Rank 1: +1.3% (Passive)' },
+        { name: 'Executioner’s Fury', description: 'Under 50% HP: +25% crit melee, +15% combat art damage for 2 min or until HP >50% (Passive)' },
+        // Dragoon branch
+        { name: 'Dragoon’s Agility', description: 'AGI +6 (per rank) (Passive)' },
+        { name: 'Dragoon Spin', description: 'Melee spear AoE attack. (Self; CRR 1s|0.5s|1m; AoE 7.5m; Max Targets 8; Resist +5%; Power 95)' },
+        { name: 'Dragoon’s Cyclone', description: 'Chance for auto-attacks to hit up to 4 enemies in front. Rank 1: 3% (Self; CRR 4s|0.5s|10s; Duration cancel)' },
+        { name: 'Dragoon’s Avoidance', description: 'Increases defense. Rank 1: +1.7 (Passive)' },
+        { name: 'Dragoon’s Reflexes', description: 'Parry all combat attacks for 12s. Can’t use combat arts during. (Self; CRR 0.2s|12s|10m; Power 95)' },
+        // Gladiator branch
+        { name: 'Gladiator’s Stamina', description: 'STA +5 (per rank) (Passive)' },
+        { name: 'Buckler Reversal', description: 'With buckler, counterattack when block/parry/riposte happens. New chance every 30s. (Self; CRR 1s|0.5s|30s; Duration cancel)' },
+        { name: 'Gladiator’s Finesse', description: 'With buckler, chance to double attack. Rank 1: 13% (Passive)' },
+        { name: 'Gladiator’s Revenge', description: 'With buckler, +1% to parry/block/riposte. (Passive)' },
+        { name: 'Perseverance', description: 'Combat arts use 10% less power; 10% of spent power is restored as health. (Passive)' },
+        // Demolisher branch
+        { name: 'Demolisher’s Wisdom', description: 'WIS +7 (per rank) (Passive)' },
+        { name: 'Belly Smash', description: 'With hammer and target downed, lowers physical mitigation. Knocks down again. Not vs Epics. (Enemy; CRR 0.5s|0.5s|30s; Duration 10s; Range 5m; Resist +5%; Power 71)' },
+        { name: 'Seasoned Veteran', description: 'Increases DPS. Rank 1: +2.4% (Passive)' },
+        { name: 'Unshakeable', description: 'Increases physical damage resistance. (Passive)' },
+        { name: 'Demolish', description: 'Removes penalties from offensive/defensive stances. (Passive)' },
+        // Slayer branch
+        { name: 'Slayer’s Intelligence', description: 'INT +8 (per rank) (Passive)' },
+        { name: 'Acceleration', description: 'With sword and on Acceleration, +22% Attack Speed after 3 successful combat arts. (Self; CRR 0.2s|0.5s|30s; Duration 3m; Power 71)' },
+        { name: 'Slayer’s Speed', description: 'Increases Attack Speed. Rank 1: +2.2% (Passive)' },
+        { name: 'Parry', description: 'Increases Parry skill. Rank 1: +2.1 (Passive)' },
+        { name: 'Relentless Assault', description: 'Improves recovery (-30%) and recast (-6%) timers. (Passive)' }
+      ],
+    };
+    // Node layout
+    const nodeTemplate = [];
+    nodeTemplate.push({ x: 2, y: 0, max: 1, cost: 1 });
+    for (let col = 0; col < 5; col++) {
+      for (let tier = 1; tier <= 4; tier++) nodeTemplate.push({ x: col, y: tier, max: 8, cost: 1 });
+      nodeTemplate.push({ x: col, y: 5, max: 1, cost: 8 });
+    }
+    const nodeCount = nodeTemplate.length;
+
+    // Build storage
+    const builds = {};
+    KOS_CLASSES.forEach(cls => builds[cls] = new Array(nodeCount).fill(0));
+
+    let selectedClass = '';
+    let treeData = [];
+    let pointsSpent = 0;
+    const kosSelect = document.getElementById('kosSelect');
+    const treeEl = document.getElementById('tree');
+    const pointIndicator = document.getElementById('pointIndicator');
+
+    function init() {
+      KOS_CLASSES.forEach(c => kosSelect.appendChild(new Option(c, c)));
+      selectedClass = KOS_CLASSES[0];
+      kosSelect.value = selectedClass;
+      kosSelect.onchange = () => { selectedClass = kosSelect.value; loadBuild(); };
+      loadBuild();
+    }
+
+    function loadBuild() {
+      treeData = nodeTemplate.map((t, i) => ({ ...t, value: builds[selectedClass][i] }));
+      recalcPoints();
+      renderTree();
+    }
+    function saveBuild() { builds[selectedClass] = treeData.map(n => n.value); }
+    function recalcPoints() {
+      pointsSpent = treeData.reduce((sum, n) => sum + n.value * n.cost, 0);
+      pointIndicator.textContent = `${pointsSpent}/${totalPoints}`;
+    }
+
+    function renderTree() {
+      treeEl.innerHTML = '';
+      for (let row = 0; row < 6; row++) {
+        for (let col = 0; col < 5; col++) {
+          const idx = nodeTemplate.findIndex(n => n.x === col && n.y === row);
+          if (idx < 0) { treeEl.appendChild(document.createElement('div')); continue; }
+          const data = treeData[idx];
+          const node = document.createElement('div');
+          node.className = 'node';
+
+          // apply the new endline rule here:
+          const canClick =
+            data.value < data.max &&
+            pointsSpent + data.cost <= totalPoints &&
+            (data.y === 0 ||
+             (data.y === 5
+               ? canEndline(data)      // enforce ≥16 pts in that column
+               : canProgress(data)));  // existing 1→4 tier checks
+
+          node.classList.add(canClick ? 'clickable' : 'unclickable');
+          if (data.value > 0) node.classList.add('selected');
+          node.textContent = `${data.value}/${data.max}`;
+
+          // tooltip
+          const tip = document.createElement('div');
+          tip.className = 'tooltip';
+          const classTips = classTooltips[selectedClass];
+          if (classTips && classTips[idx]) {
+            const t = classTips[idx];
+            tip.innerHTML = `<strong>${t.name}</strong><br>${t.description}<br><em>Cost: ${data.cost}, Max: ${data.max}</em>`;
+          } else {
+            tip.textContent = `Cost: ${data.cost}, Max: ${data.max}`;
+          }
+          node.appendChild(tip);
+
+          node.onclick = () => {
+            if (canClick) {
+              data.value++;
+              saveBuild();
+              recalcPoints();
+              renderTree();
+            }
+          };
+          node.oncontextmenu = e => {
+            e.preventDefault();
+            if (data.value > 0) {
+              data.value--;
+              saveBuild();
+              recalcPoints();
+              renderTree();
+            }
+          };
+          treeEl.appendChild(node);
+        }
+      }
+    }
+
+    // old progression logic (top → tier-1 → tier-2/3/4)
+    function canProgress(node) {
+      if (node.y === 1) return treeData[0].value >= 1;
+      const prevIdx = nodeTemplate.findIndex(n => n.x === node.x && n.y === node.y - 1);
+      return treeData[prevIdx].value >= 4;
+    }
+
+    // new endline logic: require ≥16 spent in that column's tiers 1–4
+    function canEndline(node) {
+      const sum = treeData
+        .filter(n => n.x === node.x && n.y >= 1 && n.y <= 4)
+        .reduce((s, n) => s + n.value * n.cost, 0);
+      return sum >= 16;
+    }
+
+    function exportBuild() {
+      const exportData = {};
+      KOS_CLASSES.forEach(cls => {
+        const arr = builds[cls];
+        if (arr.some(v => v > 0)) exportData[cls] = arr;
+      });
+      prompt('Copy your build string:', btoa(JSON.stringify(exportData)));
+    }
+
+    function importBuild() {
+      try {
+        const obj = JSON.parse(atob(prompt('Paste your build string:')));
+        Object.keys(obj).forEach(cls => {
+          if (builds[cls] && Array.isArray(obj[cls]) && obj[cls].length === nodeCount) {
+            builds[cls] = obj[cls];
+          }
+        });
+        loadBuild();
+      } catch {
+        alert('Invalid build string');
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
