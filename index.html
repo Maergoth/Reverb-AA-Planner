@@ -65,12 +65,6 @@
       align-self: center;
     }
 
-    /* Grey out disabled buttons */
-    .controls button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
     .dropdowns select {
       padding: 0.4rem 0.6rem;
       border-radius: 6px;
@@ -278,6 +272,12 @@
       transform: translateY(-2px);
     }
 
+    /* Disabled buttons appear dimmed and cannot be clicked */
+    .controls button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     #pointIndicator {
       font-weight: bold;
       font-size: 1.1rem;
@@ -304,12 +304,10 @@
     <div class="tree" id="tree"></div>
     <!-- Labels for each column in the KOS tree -->
     <div id="lineLabelsKos" class="line-labels"></div>
-    <div class="controls">
+      <div class="controls">
       <div id="pointIndicator">0/50</div>
       <button id="resetBtn">Reset</button>
       <button id="copyUrlBtn">Export</button>
-      <!-- Unified play button for KOS/EoF builds.  Will allocate points following the recorded sequence. -->
-      <button id="playBtn">Play</button>
     </div>
   </div>
 
@@ -325,50 +323,242 @@
     </div>
     <div class="controls">
       <div id="eofPointIndicator">0/0</div>
+      <!-- Playback removed -->
       <button id="eofResetBtn">Reset</button>
       <button id="eofCopyUrlBtn">Export</button>
-      <!-- Unified play button for EoF (same function as KOS play button). -->
-      <button id="eofPlayBtn">Play</button>
     </div>
   </div>
   <script>
     const totalPoints = 50;
 
-    // Base node size controlling spacing across trees
+    // Base pixel size of nodes used for consistent grid spacing.
     const nodeSize = 120;
 
-    // Max allowed points in an EoF tree
+    // Max points allowed in an EoF tree.
     const eofMaxPoints = 50;
 
-    // Colour palette per column
+    // Colour palette for tree columns.
     const lineColors = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6'];
+
+    // URL-safe character set mapping small integers to single chars.
+    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+    // Encode KOS builds: class index + node/rank pairs terminated by '.'.
+    function encodeKosBuilds() {
+      let result = '';
+      KOS_CLASSES.forEach((cls, cidx) => {
+        const arr = builds[cls];
+        if (!arr) return;
+        let segment = '';
+        // Only encode nodes with non-zero rank as index/rank pairs.
+        for (let i = 0; i < arr.length; i++) {
+          const v = arr[i] || 0;
+          if (v > 0) {
+            segment += charset[i] + charset[v];
+          }
+        }
+        if (segment.length > 0) {
+          result += charset[cidx] + segment + '.';
+        }
+      });
+      return result;
+    }
+
+    // Decode KOS builds (supports new variable-length and old fixed formats).
+    function decodeKosBuild(encoded) {
+      if (!encoded) return;
+      // New format: class index followed by node/rank pairs until '.'.
+      if (encoded.indexOf('.') >= 0) {
+        let pos = 0;
+        while (pos < encoded.length) {
+          const classChar = encoded.charAt(pos++);
+          const clsIdx = charset.indexOf(classChar);
+          if (clsIdx < 0 || clsIdx >= KOS_CLASSES.length) break;
+          const cls = KOS_CLASSES[clsIdx];
+          const arr = new Array(nodeCount).fill(0);
+          while (pos < encoded.length) {
+            const ch = encoded.charAt(pos++);
+            if (ch === '.') break; // end of this class segment
+            const nodeIdx = charset.indexOf(ch);
+            const valChar = encoded.charAt(pos++);
+            const val = charset.indexOf(valChar);
+            if (nodeIdx >= 0 && nodeIdx < nodeCount) {
+              arr[nodeIdx] = val >= 0 ? val : 0;
+            }
+          }
+          builds[cls] = arr;
+        }
+      } else {
+        // Old fixed‑length format: segmentLength = 1 + nodeCount.  This
+        // fallback preserves compatibility with older URLs.  If the
+        // encoded length isn't a multiple of the expected segment
+        // length, throw.
+        const segmentLength = 1 + nodeCount;
+        if (encoded.length % segmentLength !== 0) {
+          throw new Error('Invalid KOS build encoding');
+        }
+        for (let pos = 0; pos < encoded.length; pos += segmentLength) {
+          const classChar = encoded.charAt(pos);
+          const clsIdx = charset.indexOf(classChar);
+          if (clsIdx < 0 || clsIdx >= KOS_CLASSES.length) continue;
+          const cls = KOS_CLASSES[clsIdx];
+          const arr = new Array(nodeCount).fill(0);
+          for (let i = 0; i < nodeCount; i++) {
+            const ch = encoded.charAt(pos + 1 + i);
+            const val = charset.indexOf(ch);
+            arr[i] = val >= 0 ? val : 0;
+          }
+          builds[cls] = arr;
+        }
+      }
+    }
+
+    // Encode all EoF builds into a compact string.  Each class segment
+    // begins with a class index character followed by zero or more pairs
+    // of characters, one for the node index and one for the rank value.  A
+    // period ('.') terminates the segment.  Only nodes with ranks > 0
+    // contribute pairs.  Classes with no points are omitted entirely.
+    function encodeEofBuilds() {
+      let result = '';
+      EOF_CLASSES.forEach((cls, cidx) => {
+        const tree = eofTrees[cls];
+        if (!tree) return;
+        const obj = eofBuilds[cls];
+        let segment = '';
+        tree.nodes.forEach((n, nidx) => {
+          const v = obj && obj[n.id] ? obj[n.id] : 0;
+          if (v && v > 0) {
+            // encode node index and rank
+            segment += charset[nidx] + charset[v];
+          }
+        });
+        if (segment.length > 0) {
+          result += charset[cidx] + segment + '.';
+        }
+      });
+      return result;
+    }
+
+    // Decode EoF builds from the compact string.  Reads class index
+    // characters followed by node/rank pairs until a period ('.') ends the
+    // segment.  Populates eofBuilds accordingly.
+    function decodeEofBuild(encoded) {
+      if (!encoded) return;
+      let pos = 0;
+      while (pos < encoded.length) {
+        const classChar = encoded.charAt(pos++);
+        const clsIdx = charset.indexOf(classChar);
+        if (clsIdx < 0 || clsIdx >= EOF_CLASSES.length) break;
+        const cls = EOF_CLASSES[clsIdx];
+        if (!eofBuilds[cls]) eofBuilds[cls] = {};
+        const tree = eofTrees[cls];
+        if (!tree) break;
+        while (pos < encoded.length) {
+          const ch = encoded.charAt(pos++);
+          if (ch === '.') break; // end of class segment
+          const nodeIdx = charset.indexOf(ch);
+          const valChar = encoded.charAt(pos++);
+          const val = charset.indexOf(valChar);
+          if (nodeIdx < 0 || nodeIdx >= tree.nodes.length) continue;
+          const nodeId = tree.nodes[nodeIdx].id;
+          eofBuilds[cls][nodeId] = val >= 0 ? val : 0;
+        }
+      }
+    }
+
+    // Encode the point allocation sequence into a compact string.  Each entry
+    // becomes three characters: a tree marker ('K' for KOS or 'E' for EoF),
+    // the class index encoded with charset, and the node index encoded
+    // with charset.  For EoF entries, node indexes are looked up in the
+    // corresponding class tree.  Returns an empty string if sequence is
+    // empty.
+    function encodeSeq() {
+      if (!pointSequence || pointSequence.length === 0) return '';
+      let out = '';
+      for (const ent of pointSequence) {
+        if (ent.tree === 'KOS') {
+          const clsIdx = KOS_CLASSES.indexOf(ent.class);
+          if (clsIdx < 0) continue;
+          out += 'K' + charset[clsIdx] + charset[ent.index];
+        } else if (ent.tree === 'EOF') {
+          const clsIdx = EOF_CLASSES.indexOf(ent.class);
+          const tree = eofTrees[ent.class];
+          if (clsIdx < 0 || !tree) continue;
+          const nodeIdx = tree.nodes.findIndex(n => n.id === ent.id);
+          if (nodeIdx < 0) continue;
+          out += 'E' + charset[clsIdx] + charset[nodeIdx];
+        }
+      }
+      return out;
+    }
+
+    // Decode the allocation sequence from the compact string.  Parses
+    // three-character groups and rebuilds pointSequence accordingly.  If
+    // decoding fails, returns false.
+    function decodeSeq(encoded) {
+      const seq = [];
+      if (!encoded) return seq;
+      const length = encoded.length;
+      for (let i = 0; i < length; i += 3) {
+        const marker = encoded.charAt(i);
+        const clsChar = encoded.charAt(i + 1);
+        const nodeChar = encoded.charAt(i + 2);
+        if (!marker || !clsChar || !nodeChar) break;
+        if (marker === 'K') {
+          const clsIdx = charset.indexOf(clsChar);
+          const nodeIdx = charset.indexOf(nodeChar);
+          if (clsIdx < 0 || nodeIdx < 0) continue;
+          const cls = KOS_CLASSES[clsIdx];
+          seq.push({ tree: 'KOS', class: cls, index: nodeIdx });
+        } else if (marker === 'E') {
+          const clsIdx = charset.indexOf(clsChar);
+          const nodeIdx = charset.indexOf(nodeChar);
+          if (clsIdx < 0 || nodeIdx < 0) continue;
+          const cls = EOF_CLASSES[clsIdx];
+          const tree = eofTrees[cls];
+          if (!tree || nodeIdx >= tree.nodes.length) continue;
+          const nodeId = tree.nodes[nodeIdx].id;
+          seq.push({ tree: 'EOF', class: cls, id: nodeId });
+        }
+      }
+      return seq;
+    }
     const KOS_CLASSES = [
       "Bard","Brawler","Cleric","Crusader","Druid",
       "Enchanter","Predator","Rogue","Shaman",
       "Sorcerer","Summoner","Warrior"
     ];
 
-    // EoF class definitions including lines, nodes and prerequisites
-// Conjuror and Defiler classes included
+    // === EoF class definitions ===
+    // These classes represent the Kingdom of Everfrost (Echoes of Faydwer) trees. Each entry
+    // defines a set of lines (branches) along with their column index and the number of points
+    // required in that line to unlock the endline.  Nodes describe individual abilities with
+    // their display name, short description, line assignment, grid position, maximum ranks and
+    // prerequisite conditions.  Prerequisites are satisfied if any of the referenced nodes
+    // have at least the specified rank.
+// Add the Conjuror class to the list of available EoF classes.  This array
+// drives the class dropdown and the mapping used to initialise builds.
+// Include Defiler in the list of Echoes of Faydwer classes.  This drives
+// the dropdown and build initialisation for the EoF portion of the planner.
 const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "Conjuror", "Defiler", "Dirge", "Fury", "Guardian", "Illusionist", "Inquisitor", "Monk", "Mystic", "Necromancer", "Paladin", "Ranger", "Shadowknight", "Swashbuckler", "Templar", "Troubador", "Warden", "Warlock", "Wizard"];
     const eofTrees = {
       Assassin: {
         lines: {
-          // Columns and gating for branches
+          // Original base columns used for ordering and gating (5‑column segments).  Positions are defined explicitly below.
           Bleeding: { col: 0, gating: 20 },
           Tricks:   { col: 3, gating: 20 },
           Physicality: { col: 6, gating: 20 },
           Poisons: { col: 8, gating: 20 }
         },
         nodes: [
-          // Assassin node positions
+          // Assassin nodes mapped onto a 20×20 grid.  Top and bottom rows align horizontally.
           { id:'scrapingBlow',    name:'Enhance: Scraping Blow',    description:'Increases overtime damage by 7% per rank.',                line:'Bleeding',    row:0,  col:1,  max:5, cost:1, prereqs:[] },
           { id:'flowingWound',    name:'Enhance: Flowing Wound',    description:'Increases overtime damage by 4% per rank.',                line:'Bleeding',    row:1,  col:0,  max:5, cost:1, prereqs:[{id:'scrapingBlow', rank:3}] },
           { id:'deadlyWound',     name:'Enhance: Deadly Wound',     description:'Increases overtime damage by 6% per rank.',                line:'Bleeding',    row:2,  col:1,  max:5, cost:1, prereqs:[{id:'flowingWound', rank:3},{id:'jugular', rank:3}] },
           { id:'malignantMark',   name:'Enhance: Malignant Mark',   description:'Increases trigger chance by 1% per rank.',                line:'Bleeding',    row:3,  col:0,  max:5, cost:1, prereqs:[{id:'flowingWound', rank:3},{id:'deadlyWound', rank:3}] },
           { id:'cloakedAssault',  name:'Enhance: Cloaked Assault',  description:'Increases overtime damage by 5% per rank.',                line:'Bleeding',    row:4,  col:1,  max:5, cost:1, prereqs:[{id:'malignantMark', rank:3},{id:'freezingStrike', rank:3}] },
           { id:'excessiveBleeding', name:'Excessive Bleeding',      description:'Reduces maximum health by up to 5% for each Bleeding ability active on a target.', line:'Bleeding', row:5,  col:1, max:1, cost:1, prereqs:[] },
-          // Tricks branch positions
+          // Tricks branch with original positions
           { id:'cheapShot',       name:'Enhance: Cheap Shot',       description:'Increases duration by 0.2 seconds per rank.',              line:'Tricks',      row:0,  col:3,  max:5, cost:1, prereqs:[] },
           { id:'jugular',         name:'Enhance: Jugular',          description:'Increases stifle duration by 1 second per rank.',            line:'Tricks',      row:1,  col:2,  max:5, cost:1, prereqs:[{id:'scrapingBlow', rank:3},{id:'cheapShot', rank:3}] },
           { id:'constriction',    name:'Enhance: Constriction',     description:'Improves reuse speed by 2 seconds per rank.',              line:'Tricks',      row:1,  col:4,  max:5, cost:1, prereqs:[{id:'cheapShot', rank:3},{id:'honedReflexes', rank:3}] },
@@ -376,14 +566,14 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           { id:'cripplingStrike', name:'Enhance: Crippling Strike', description:'Improves defense reduction by 4% per rank.',                   line:'Tricks',      row:3,  col:4,  max:5, cost:1, prereqs:[{id:'constriction', rank:3},{id:'honedReflexes', rank:3}] },
           { id:'masteryStrikes',  name:'Enhance: Mastery Strikes',  description:'Improves reuse speed by 8 seconds per rank.',                 line:'Tricks',      row:4,  col:3,  max:5, cost:1, prereqs:[{id:'freezingStrike', rank:3},{id:'cripplingStrike', rank:3}] },
           { id:'repeatedStabbing',name:'Repeated Stabbing',         description:'Increases recovery speed of caster by 100%.',                   line:'Tricks',      row:5,  col:3,  max:1, cost:1, prereqs:[] },
-          // Physicality branch positions
+          // Physicality branch with original positions
           { id:'sprint',          name:'Enhance: Sprint',           description:'Increases sprint movement speed by 5% and reduces initial power cost by 10% per rank.', line:'Physicality', row:0,  col:6,  max:5, cost:1, prereqs:[] },
           { id:'honedReflexes',   name:'Enhance: Honed Reflexes',   description:'Increases attack speed by an additional 3% per rank.',        line:'Physicality', row:1,  col:5,  max:5, cost:1, prereqs:[{id:'sprint', rank:3},{id:'constriction', rank:3}] },
           { id:'deftDefense',     name:'Enhance: Deft Defense',     description:'Reduces penalties by 20% per rank.',                           line:'Physicality', row:3,  col:5,  max:5, cost:1, prereqs:[{id:'honedReflexes', rank:3},{id:'constriction', rank:3}] },
           { id:'deadlyFocus',     name:'Enhance: Deadly Focus',     description:'Increases the damage per second effect by an additional 3 points per rank.', line:'Physicality', row:3,  col:7,  max:5, cost:1, prereqs:[{id:'hemotoxin', rank:3},{id:'ignorantBliss', rank:3}] },
           { id:'exacting',        name:'Enhance: Exacting',         description:'Improves reuse speed by 8 seconds per rank.',                   line:'Physicality', row:4,  col:6,  max:5, cost:1, prereqs:[{id:'deftDefense', rank:3},{id:'deadlyFocus', rank:3}] },
           { id:'getaway',         name:'Getaway',                   description:'Grants a burst of movement speed, stealth and AoE immunity until you attack or take damage.', line:'Physicality', row:5,  col:6,  max:1, cost:1, prereqs:[] },
-          // Poisons branch positions
+          // Poisons branch with original positions
           { id:'enmesh',          name:'Enhance: Enmesh',           description:'Increases poison resist reduction by 6% per rank.',              line:'Poisons',     row:0,  col:8,  max:5, cost:1, prereqs:[] },
           { id:'hemotoxin',       name:'Enhance: Hemotoxin Poison', description:'Reduces duration by 2 seconds per rank.',                       line:'Poisons',     row:1,  col:7,  max:5, cost:1, prereqs:[{id:'sprint', rank:3},{id:'enmesh', rank:3}] },
           { id:'ignorantBliss',   name:'Enhance: Ignorant Bliss Poison', description:'Increases hate reduction by 6% per rank.',            line:'Poisons',     row:1,  col:9,  max:5, cost:1, prereqs:[{id:'enmesh', rank:3}] },
@@ -400,7 +590,7 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           Bulking:      { col:15, gating: 15 }
         },
         nodes: [
-          // Perseverance branch positions
+          // Perseverance branch positions (five‑column segment starting at 0)
           { id:'mayhem',          name:'Enhance: Mayhem',          description:'Improves the reuse speed of Disorder and its upgrades by 3 seconds per rank.', line:'Perseverance', row:0,  col:1,  max:5, cost:1, prereqs:[] },
           { id:'bloodRage',       name:'Enhance: Blood Rage',       description:'Increases the health regenerated by Blood Rage and its upgrades by 10% per rank.', line:'Perseverance', row:1,  col:0,  max:5, cost:1, prereqs:[{id:'mayhem', rank:3}] },
           { id:'combativeRage',   name:'Enhance: Combative Rage',   description:'Increases the health regenerated by Screaming Rage and its upgrades by 6% per rank.', line:'Perseverance', row:1,  col:2,  max:5, cost:1, prereqs:[{id:'mayhem', rank:3},{id:'bloodbath', rank:3}] },
@@ -408,14 +598,14 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           { id:'unyieldingWill',  name:'Enhance: Unyielding Will',  description:'If you are Berserk when Unyielding Will expires, you escape its death effect.', line:'Perseverance', row:3,  col:2,  max:5, cost:1, prereqs:[{id:'combativeRage', rank:3},{id:'stunningHowl', rank:3}] },
           { id:'visionOfMadness', name:'Enhance: Vision of Madness', description:'Improves the reuse speed of your Vision of Madness by 100 seconds.', line:'Perseverance', row:4,  col:1,  max:5, cost:1, prereqs:[{id:'suppressedRage', rank:3},{id:'unyieldingWill', rank:1}] },
           { id:'perseveranceEnd', name:'Perseverance',              description:'The Berserker’s health regeneration abilities are twice as powerful while health is below 30%.', line:'Perseverance', row:5,  col:1,  max:1, cost:1, prereqs:[] },
-          // Cyclone branch positions
+          // Cyclone branch positions (segment starting at 5)
           { id:'bloodbath',        name:'Enhance: Bloodbath',        description:'Increases the damage of Whirl and its upgrades by 5% per rank.', line:'Cyclone',      row:0,  col:3,  max:5, cost:1, prereqs:[] },
           { id:'berserkerOnslaught', name:'Enhance: Berserker Onslaught', description:'Increases the damage of Barrage and its upgrades by 5% per rank.', line:'Cyclone',      row:1,  col:4,  max:5, cost:1, prereqs:[{id:'bloodbath', rank:3},{id:'persistentBattering', rank:3}] },
           { id:'stunningHowl',    name:'Enhance: Stunning Howl',    description:'Increases the damage of Stunning Cry and its upgrades by 5% per rank.', line:'Cyclone',      row:2,  col:3,  max:5, cost:1, prereqs:[{id:'berserkerOnslaught', rank:3},{id:'combativeRage', rank:3}] },
           { id:'destruction',     name:'Enhance: Destruction',      description:'Improves the reuse speed of Rampage and its upgrades by 5 seconds per rank.', line:'Cyclone',      row:3,  col:4,  max:5, cost:1, prereqs:[{id:'stunningHowl', rank:3},{id:'disfigure', rank:3}] },
           { id:'openWounds',      name:'Enhance: Open Wounds',      description:'Improves the reuse speed of Open Wounds by 5 seconds per rank.', line:'Cyclone',      row:4,  col:3,  max:5, cost:1, prereqs:[{id:'destruction', rank:3},{id:'unyieldingWill', rank:1}] },
           { id:'cyclones',        name:'Cyclones',                  description:'Increases the radius of all area effect combat arts and reduces resistability of taunts by 10%.', line:'Cyclone',      row:5,  col:3,  max:1, cost:1, prereqs:[] },
-          // Debilitation branch positions
+          // Debilitation branch positions (segment starting at 10)
           { id:'violentPledge',      name:'Enhance: Violent Pledge',      description:'Increases the damage and hate generated by Raging Blow and its upgrades by 4% per rank.', line:'Debilitation', row:0,  col:6,  max:5, cost:1, prereqs:[] },
           { id:'persistentBattering', name:'Enhance: Persistent Battering', description:'Mangle and its upgrades become more effective at reducing opponents’ offensive skill by 10% per rank.', line:'Debilitation', row:1,  col:5,  max:5, cost:1, prereqs:[{id:'violentPledge', rank:3},{id:'berserkerOnslaught', rank:3}] },
           { id:'agonizingPress',      name:'Enhance: Agonizing Press',      description:'Tackle and its upgrades improve in potency, increasing duration by 0.3 seconds per rank.', line:'Debilitation', row:1,  col:7,  max:5, cost:1, prereqs:[{id:'violentPledge', rank:3},{id:'engulfingRage', rank:3}] },
@@ -423,7 +613,7 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           { id:'ruthlessStrike',      name:'Enhance: Ruthless Strike',      description:'Surround and its upgrades reduce opponents’ casting skills by 10% per rank and improve reuse speed by 1 second per rank.', line:'Debilitation', row:3,  col:7,  max:5, cost:1, prereqs:[{id:'agonizingPress', rank:3},{id:'warCry', rank:2}] },
           { id:'demolish',            name:'Enhance: Demolish',            description:'Vanquished opponents are unable to cast spells for a longer amount of time, increasing duration by 0.3 seconds per rank.', line:'Debilitation', row:4,  col:6,  max:5, cost:1, prereqs:[{id:'disfigure', rank:3},{id:'ruthlessStrike', rank:3}] },
           { id:'gutRoar',             name:'Gut Roar',                      description:'Counters the next profession combat art or spell of anyone near the Berserker.', line:'Debilitation', row:5,  col:6,  max:1, cost:1, prereqs:[] },
-          // Bulking branch positions
+          // Bulking branch positions (segment starting at 15)
           { id:'engulfingRage',    name:'Enhance: Engulfing Rage',    description:'Increases the trigger chance of Focus Anger and its upgrades by 1% per rank.', line:'Bulking',      row:0,  col:8,  max:5, cost:1, prereqs:[] },
           { id:'wallOfFerocity',   name:'Enhance: Wall of Ferocity',   description:'Increases the duration of Hunker and its upgrades by 3 seconds per rank.', line:'Bulking',      row:1,  col:9,  max:5, cost:1, prereqs:[{id:'engulfingRage', rank:3}] },
           { id:'warCry',           name:'Enhance: War Cry',            description:'Increases the trigger chance of Battle Chant and its upgrades by 1% per rank.', line:'Bulking',      row:2,  col:8,  max:3, cost:1, prereqs:[{id:'wallOfFerocity', rank:3},{id:'agonizingPress', rank:3}] },
@@ -1972,13 +2162,6 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
     const resetBtn   = document.getElementById('resetBtn');
     const copyUrlBtn = document.getElementById('copyUrlBtn');
 
-    // Playback tracking: record allocations and track removal state
-    let pointSequence = [];
-    let removedFlag = false;
-    // Unified play buttons
-    const playBtn     = document.getElementById('playBtn');
-    const eofPlayBtn  = document.getElementById('eofPlayBtn');
-
     // === EoF state and DOM references ===
     let selectedEofClass = '';
     let eofTreeData = [];
@@ -1997,26 +2180,13 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
     const eofResetBtn      = document.getElementById('eofResetBtn');
     const eofCopyUrlBtn    = document.getElementById('eofCopyUrlBtn');
 
-    // Disable play when >100 points spent or removals occurred
-    function updatePlayButtons() {
-      // total spent is computed from both KOS and EoF counters.
-      const totalSpentAll = pointsSpent + eofPointsSpent;
-      let reason = '';
-      if (totalSpentAll > 100) {
-        reason = 'More than 100 points have been spent';
-      } else if (removedFlag) {
-        reason = 'Some points have been removed';
-      }
-      const disabled = reason !== '';
-      if (playBtn) {
-        playBtn.disabled = disabled;
-        playBtn.title = reason || '';
-      }
-      if (eofPlayBtn) {
-        eofPlayBtn.disabled = disabled;
-        eofPlayBtn.title = reason || '';
-      }
-    }
+    // === Playback state and controls (unused) ===
+    // pointSequence and removedFlag are kept for compatibility but playback has been removed.
+    let pointSequence = [];
+    let removedFlag = false;
+    // Play buttons have been removed so these references will be null.
+    const playBtn = null;
+    const eofPlayBtn = null;
 
     resetBtn.onclick = () => {
       // reset all ranks for every KOS class
@@ -2030,48 +2200,41 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           Object.keys(obj).forEach(id => { obj[id] = 0; });
         }
       });
-      // clear the recorded sequence and removal state
-      pointSequence = [];
-      removedFlag = false;
+      // clear recorded sequence and removal state
+      if (typeof pointSequence !== 'undefined') pointSequence = [];
+      if (typeof removedFlag !== 'undefined') removedFlag = false;
       // remove all query parameters from the URL
       const url = new URL(window.location);
       url.search = '';
       window.history.replaceState(null, '', url);
-      // reload UI
-      recalcPoints();
-      recalcEofPoints();
-      renderTree();
-      renderEofTree();
-      updatePlayButtons();
+      // refresh UI by reloading builds for current selections
+      if (typeof loadBuild === 'function') loadBuild();
+      if (typeof loadEofBuild === 'function') loadEofBuild();
+      // No playback state to update
     };
 
     // Reset the currently selected EoF tree.  Clears all ranks and removes
     // the "eof" parameter from the URL.
     eofResetBtn.onclick = () => {
-      // reset all ranks for every KOS class
+      // reset all ranks for every KOS and EoF class
       KOS_CLASSES.forEach(cls => {
         builds[cls] = new Array(nodeCount).fill(0);
       });
-      // reset all ranks for every EoF class
       EOF_CLASSES.forEach(cls => {
         const obj = eofBuilds[cls];
-        if (obj) {
-          Object.keys(obj).forEach(id => { obj[id] = 0; });
-        }
+        if (obj) Object.keys(obj).forEach(id => { obj[id] = 0; });
       });
-      // clear the recorded sequence and removal state
-      pointSequence = [];
-      removedFlag = false;
+      // clear sequence and removal state
+      if (typeof pointSequence !== 'undefined') pointSequence = [];
+      if (typeof removedFlag !== 'undefined') removedFlag = false;
       // wipe all query parameters
       const url2 = new URL(window.location);
       url2.search = '';
       window.history.replaceState(null, '', url2);
-      // reload UI
-      recalcPoints();
-      recalcEofPoints();
-      renderTree();
-      renderEofTree();
-      updatePlayButtons();
+      // refresh UI by reloading builds for current selections
+      if (typeof loadBuild === 'function') loadBuild();
+      if (typeof loadEofBuild === 'function') loadEofBuild();
+      // No playback state to update
     };
 
     copyUrlBtn.onclick = () => {
@@ -2099,72 +2262,74 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
         });
     };
 
-    // Attach playback handlers to play buttons
-    if (playBtn) {
-      playBtn.onclick = () => {
-        playBuild();
-      };
-    }
-    if (eofPlayBtn) {
-      eofPlayBtn.onclick = () => {
-        playBuild();
-      };
-    }
-
     function init() {
       // 1. parse any “build” (KOS) and "eof" (EoF) params from the URL
       const params = new URLSearchParams(window.location.search);
       if (params.has('build')) {
+        const enc = params.get('build');
+        let decoded = false;
         try {
-          const obj = JSON.parse(atob(params.get('build')));
-          Object.entries(obj).forEach(([cls, val]) => {
-            if (!builds[cls]) return;
-            // If val is a base64 string, decode into an array of charCodes
-            if (typeof val === 'string') {
-              const bytes = atob(val);
-              const arr = new Array(nodeCount).fill(0);
-              for (let i = 0; i < bytes.length && i < nodeCount; i++) {
-                arr[i] = bytes.charCodeAt(i);
+          decodeKosBuild(decodeURIComponent(enc));
+          decoded = true;
+        } catch (err) {
+          // fall back to old base64 JSON format
+          try {
+            const obj = JSON.parse(atob(enc));
+            Object.entries(obj).forEach(([cls, val]) => {
+              if (!builds[cls]) return;
+              if (typeof val === 'string') {
+                const bytes = atob(val);
+                const arr = new Array(nodeCount).fill(0);
+                for (let i = 0; i < bytes.length && i < nodeCount; i++) {
+                  arr[i] = bytes.charCodeAt(i);
+                }
+                builds[cls] = arr;
+              } else if (Array.isArray(val) && val.length === nodeCount) {
+                builds[cls] = val;
               }
-              builds[cls] = arr;
-            } else if (Array.isArray(val) && val.length === nodeCount) {
-              builds[cls] = val;
-            }
-          });
-        } catch (e) {
-          console.error('Invalid build data in URL:', e);
+            });
+            decoded = true;
+          } catch (e2) {
+            console.error('Invalid KOS build data in URL:', e2);
+          }
         }
       }
       if (params.has('eof')) {
+        const enc = params.get('eof');
+        let decoded = false;
         try {
-          const obj = JSON.parse(atob(params.get('eof')));
-          Object.entries(obj).forEach(([cls, values]) => {
-            if (eofTrees[cls]) {
-              Object.entries(values).forEach(([id, val]) => {
-                if (eofBuilds[cls] && id in eofBuilds[cls]) {
-                  eofBuilds[cls][id] = val;
-                }
-              });
-            }
-          });
-        } catch (e) {
-          console.error('Invalid EoF build data in URL:', e);
+          decodeEofBuild(decodeURIComponent(enc));
+          decoded = true;
+        } catch (err) {
+          // fallback to old base64 JSON format
+          try {
+            const obj = JSON.parse(atob(enc));
+            Object.entries(obj).forEach(([cls, values]) => {
+              if (eofTrees[cls]) {
+                Object.entries(values).forEach(([id, val]) => {
+                  if (eofBuilds[cls] && id in eofBuilds[cls]) {
+                    eofBuilds[cls][id] = val;
+                  }
+                });
+              }
+            });
+            decoded = true;
+          } catch (e2) {
+            console.error('Invalid EoF build data in URL:', e2);
+          }
         }
       }
 
-      // Decode sequence and removed flag from URL
+      // Load the allocation sequence and removal flag from the URL if present.
       if (params.has('seq')) {
+        const seqEnc = params.get('seq');
         try {
-          const seqVal = params.get('seq');
-          const decoded = atob(seqVal);
-          pointSequence = JSON.parse(decoded);
-        } catch (e) {
-          console.error('Invalid seq data in URL:', e);
-          pointSequence = [];
+          pointSequence = decodeSeq(decodeURIComponent(seqEnc));
+        } catch (err) {
+          console.error('Invalid sequence data in URL:', err);
         }
       }
-      // Restore removed state if flagged
-      removedFlag = params.get('rem') === '1';
+      // no longer track removal flag from URL
 
       // 2. populate the class dropdowns
       // insert the selectable KOS classes (skip index 0 because we added a blank option in the markup)
@@ -2239,6 +2404,56 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
         eofTreeContainer.style.display = 'none';
         loadBuild();
       }
+      // Select a default tab based on any points spent.  Prefer KOS classes
+      // with points; if none, fallback to the first EoF class with points.  If
+      // no points are spent anywhere, keep the default selection (first KOS
+      // class).  After selection, load the appropriate build.
+      (function selectDefaultTab() {
+        // Check KOS classes for any points spent
+        let foundKos = null;
+        for (const cls of KOS_CLASSES) {
+          const arr = builds[cls];
+          if (arr && arr.some(v => v > 0)) {
+            foundKos = cls;
+            break;
+          }
+        }
+        if (foundKos) {
+          selectedClass = foundKos;
+          lastEditedClass = foundKos;
+          kosSelect.value = foundKos;
+          eofSelect.value = '';
+          mode = 'KOS';
+          treeContainer.style.display = 'flex';
+          eofTreeContainer.style.display = 'none';
+          loadBuild();
+          return;
+        }
+        // Otherwise check EoF classes
+        let foundEof = null;
+        for (const cls of EOF_CLASSES) {
+          const obj = eofBuilds[cls];
+          if (obj) {
+            for (const val of Object.values(obj)) {
+              if (val > 0) {
+                foundEof = cls;
+                break;
+              }
+            }
+          }
+          if (foundEof) break;
+        }
+        if (foundEof) {
+          selectedEofClass = foundEof;
+          kosSelect.value = '';
+          eofSelect.value = foundEof;
+          mode = 'EOF';
+          treeContainer.style.display = 'none';
+          eofTreeContainer.style.display = 'flex';
+          loadEofBuild();
+        }
+      })();
+      // Playback removed; no play button state to update
     }
 
     function loadBuild() {
@@ -2251,156 +2466,214 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
         updateURL();    // ← push the new state into the URL
     }
 
-    /**
-     * Persist both KOS and EoF build data into the URL.  KOS builds are
-     * represented as an object mapping class names to their rank arrays,
-     * base64-encoded and stored in the "build" query parameter.  EoF
-     * builds are represented as an object mapping class names to objects
-     * keyed by node IDs with non-zero ranks, base64-encoded and stored
-     * in the "eof" query parameter.  If either build has no points
-     * spent, the corresponding parameter is removed.
-     */
+    // Persist both KOS and EoF build data into the URL using the compact encoding
     function updateURL() {
         const url = new URL(window.location);
-        // Encode KOS builds
-        const kosExport = {};
-        KOS_CLASSES.forEach(cls => {
-            const arr = builds[cls];
-            if (!arr) return;
-            if (arr.some(v => v > 0)) {
-                // compress the array into a base64 string
-                const chars = String.fromCharCode(...arr);
-                kosExport[cls] = btoa(chars);
-            }
-        });
-        if (Object.keys(kosExport).length > 0) {
-            url.searchParams.set('build', btoa(JSON.stringify(kosExport)));
+        // Encode builds and sequence using compact format for shorter URLs
+        const kosStr = encodeKosBuilds();
+        if (kosStr && kosStr.length > 0) {
+          url.searchParams.set('build', kosStr);
         } else {
-            url.searchParams.delete('build');
+          url.searchParams.delete('build');
         }
-        // Encode EoF builds
-        const eofExport = {};
-        EOF_CLASSES.forEach(cls => {
-            const classObj = {};
-            const tree = eofTrees[cls];
-            if (!tree) return;
-            tree.nodes.forEach(n => {
-                const val = eofBuilds[cls][n.id];
-                if (val && val > 0) {
-                    classObj[n.id] = val;
-                }
-            });
-            if (Object.keys(classObj).length > 0) {
-                eofExport[cls] = classObj;
-            }
-        });
-        if (Object.keys(eofExport).length > 0) {
-            url.searchParams.set('eof', btoa(JSON.stringify(eofExport)));
+        const eofStr = encodeEofBuilds();
+        if (eofStr && eofStr.length > 0) {
+          url.searchParams.set('eof', eofStr);
         } else {
-            url.searchParams.delete('eof');
+          url.searchParams.delete('eof');
         }
-
-        // Encode or clear the recorded sequence in the URL
-        if (pointSequence && pointSequence.length > 0) {
-          try {
-            url.searchParams.set('seq', btoa(JSON.stringify(pointSequence)));
-          } catch (e) {
-            console.error('Failed to encode sequence:', e);
-          }
-        } else {
-          url.searchParams.delete('seq');
-        }
-        // Persist or clear removed flag
-        if (removedFlag) {
-          url.searchParams.set('rem', '1');
-        } else {
-          url.searchParams.delete('rem');
-        }
+        // Sequence is no longer encoded since playback has been removed.
+        url.searchParams.delete('seq');
+        // No longer track removal state in the URL.
         window.history.replaceState(null, '', url);
     }
 
-    // Sequentially replay the recorded build with delays and tree switching
-    function playBuild() {
-      if (!pointSequence || pointSequence.length === 0) return;
-      const origMode = mode;
-      const origClass = selectedClass;
-      const origEofClass = selectedEofClass;
-      const origKosSelect = kosSelect.value;
-      const origEofSelect = eofSelect.value;
-      const usedKos = new Set();
-      const usedEof = new Set();
-      pointSequence.forEach(ent => {
-        if (ent.tree === 'KOS') usedKos.add(ent.class);
-        else usedEof.add(ent.class);
+    // Update the state of the Play buttons.  Disable playback if too many points
+    // are spent (>100), if points have been removed, or if no sequence exists.
+    function updatePlayButtons() {
+      if (!playBtn || !eofPlayBtn) return;
+      // compute total ranks spent across all KOS and EoF builds.  A rank is
+      // counted as one regardless of the node's point cost.  This prevents
+      // weighted costs from prematurely disabling playback when exactly 100
+      // ranks are invested.
+      let total = 0;
+      // sum KOS builds by rank count
+      KOS_CLASSES.forEach(cls => {
+        const arr = builds[cls];
+        if (!arr) return;
+        for (let i = 0; i < arr.length; i++) {
+          const val = arr[i] || 0;
+          total += val;
+        }
       });
-      usedKos.forEach(cls => { builds[cls] = new Array(nodeCount).fill(0); });
-      usedEof.forEach(cls => {
+      // sum EoF builds by rank count
+      EOF_CLASSES.forEach(cls => {
         const obj = eofBuilds[cls];
-        if (obj) Object.keys(obj).forEach(id => { obj[id] = 0; });
+        const tree = eofTrees[cls];
+        if (!obj || !tree) return;
+        Object.entries(obj).forEach(([id, val]) => {
+          if (!val || val <= 0) return;
+          total += val;
+        });
       });
-      recalcPoints();
-      recalcEofPoints();
-      renderTree();
-      renderEofTree();
-      if (playBtn) playBtn.disabled = true;
-      if (eofPlayBtn) eofPlayBtn.disabled = true;
-      const allocate = (index, prevTree) => {
-        if (index >= pointSequence.length) {
-          selectedClass = origClass;
-          selectedEofClass = origEofClass;
-          kosSelect.value = origKosSelect;
-          eofSelect.value = origEofSelect;
-          if (origMode === 'KOS' && selectedClass) {
-            mode = 'KOS';
-            treeContainer.style.display = 'flex';
-            eofTreeContainer.style.display = 'none';
-            loadBuild();
-          } else if (origMode === 'EOF' && selectedEofClass) {
-            mode = 'EOF';
-            treeContainer.style.display = 'none';
-            eofTreeContainer.style.display = 'flex';
-            loadEofBuild();
-          }
-          updateURL();
-          updatePlayButtons();
-          return;
-        }
-        const entry = pointSequence[index];
-        let delay = 500;
-        if (prevTree && entry.tree !== prevTree) delay += 500;
-        if (entry.tree === 'KOS') {
-          selectedClass = entry.class;
-          kosSelect.value = entry.class;
-          eofSelect.value = '';
-          mode = 'KOS';
-          treeContainer.style.display = 'flex';
-          eofTreeContainer.style.display = 'none';
-          const idx = entry.index;
-          builds[selectedClass][idx] = (builds[selectedClass][idx] || 0) + 1;
-          loadBuild();
-        } else {
-          selectedEofClass = entry.class;
-          eofSelect.value = entry.class;
-          kosSelect.value = '';
-          mode = 'EOF';
-          treeContainer.style.display = 'none';
-          eofTreeContainer.style.display = 'flex';
-          const nid = entry.id;
-          if (!eofBuilds[selectedEofClass]) {
-            eofBuilds[selectedEofClass] = {};
-          }
-          eofBuilds[selectedEofClass][nid] = (eofBuilds[selectedEofClass][nid] || 0) + 1;
-          loadEofBuild();
-        }
-        setTimeout(() => allocate(index + 1, entry.tree), delay);
-      };
-      allocate(0, null);
+      // Determine if the play buttons should be disabled.  Only disable
+      // playback when there is no recorded sequence or when more than
+      // 100 ranks have been allocated.  Removal of points no longer
+      // prevents playback.
+      let reason = '';
+      if (!pointSequence || pointSequence.length === 0) {
+        reason = 'Playback disabled: no points recorded';
+      } else if (total > 100) {
+        reason = 'Playback disabled: more than 100 points spent';
+      }
+      const disabled = reason !== '';
+      playBtn.disabled = disabled;
+      eofPlayBtn.disabled = disabled;
+      playBtn.title = reason;
+      eofPlayBtn.title = reason;
     }
+
+    // The previous implementation of playBuildImproved has been removed.  All
+    // playback functionality is handled by playBuild(), which decodes the
+    // sequence from the URL and replays it across both KOS and EoF trees.
 
     function recalcPoints() {
       pointsSpent = treeData.reduce((sum, n) => sum + n.value * n.cost, 0);
       pointIndicator.textContent = `${pointsSpent}/${totalPoints}`;
-      updatePlayButtons();
+      // Playback disabled; no need to update play button state.
+    }
+
+    // Override the playBuild function with an improved implementation.  This version
+    // decodes the sequence from the URL on every invocation, ensuring playback works
+    // when loading a saved URL.  It resets all builds, then replays the recorded
+    // allocations at 0.5 seconds per point and adds an extra 0.5 second pause
+    // whenever switching between KOS and EoF trees.  Finally it restores the
+    // previously selected page and updates the URL and play button states.
+    async function playBuild() {
+      // Always attempt to decode the sequence from the current URL.  If
+      // no sequence is present or decoding fails, fall back to the
+      // in‑memory pointSequence.  This allows playback to work when
+      // loading saved URLs or after page reloads.
+      const params = new URLSearchParams(window.location.search);
+      let seq;
+      if (params.has('seq')) {
+        try {
+          seq = decodeSeq(params.get('seq'));
+        } catch (err) {
+          console.error('Failed to decode seq for playback:', err);
+          seq = pointSequence;
+        }
+      } else {
+        seq = pointSequence;
+      }
+      if (!seq || seq.length === 0) return;
+      // Remember the currently selected classes to restore at the end
+      const savedKosClass = kosSelect.value;
+      const savedEofClass = eofSelect.value;
+      // Clear all existing points across every KOS and EoF class
+      KOS_CLASSES.forEach(cls => {
+        builds[cls] = new Array(nodeCount).fill(0);
+      });
+      EOF_CLASSES.forEach(cls => {
+        const obj = eofBuilds[cls];
+        if (obj) Object.keys(obj).forEach(id => { obj[id] = 0; });
+      });
+      // Reset the removed flag since we are reconstructing the build
+      removedFlag = false;
+      // Refresh both trees before playback begins
+      recalcPoints();
+      if (typeof recalcEofPoints === 'function') recalcEofPoints();
+      renderTree();
+      if (typeof renderEofTree === 'function') renderEofTree();
+      // Utility to wait for a given number of milliseconds
+      const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+      let lastTree = null;
+      // Iterate through each entry in the recorded sequence
+      for (const ent of seq) {
+        // Determine if we need an additional half‑second delay when switching trees
+        let delay = 500;
+        if (lastTree && ent.tree !== lastTree) delay += 500;
+        if (ent.tree === 'KOS') {
+          // Switch the UI to the specified KOS class
+          selectedClass = ent.class;
+          kosSelect.value = ent.class;
+          eofSelect.value = '';
+          mode = 'KOS';
+          treeContainer.style.display = 'flex';
+          eofTreeContainer.style.display = 'none';
+          loadBuild();
+          // Allocate one rank for the specified node index
+          const idx = ent.index;
+          if (treeData[idx]) {
+            treeData[idx].value++;
+            builds[selectedClass][idx] = treeData[idx].value;
+            recalcPoints();
+            renderTree();
+          }
+        } else if (ent.tree === 'EOF') {
+          // Switch the UI to the specified EoF class
+          selectedEofClass = ent.class;
+          eofSelect.value = ent.class;
+          kosSelect.value = '';
+          mode = 'EOF';
+          treeContainer.style.display = 'none';
+          eofTreeContainer.style.display = 'flex';
+          loadEofBuild();
+          // Ensure the build object exists
+          if (!eofBuilds[selectedEofClass]) eofBuilds[selectedEofClass] = {};
+          const tree = eofTrees[selectedEofClass];
+          if (tree) {
+            // Determine node index for the recorded id; if the entry uses index
+            if (typeof ent.id !== 'undefined') {
+              // ent.id stores the node id for EoF
+              const id = ent.id;
+              const node = tree.nodes.find(n => n.id === id);
+              const cur = eofBuilds[selectedEofClass][id] || 0;
+              if (node && cur < node.max) {
+                eofBuilds[selectedEofClass][id] = cur + 1;
+              }
+            } else if (typeof ent.index !== 'undefined') {
+              // Fallback: convert index to id via tree.nodes
+              const node = tree.nodes[ent.index];
+              if (node) {
+                const cur = eofBuilds[selectedEofClass][node.id] || 0;
+                if (cur < node.max) {
+                  eofBuilds[selectedEofClass][node.id] = cur + 1;
+                }
+              }
+            }
+            if (typeof recalcEofPoints === 'function') recalcEofPoints();
+            if (typeof renderEofTree === 'function') renderEofTree();
+          }
+        }
+        lastTree = ent.tree;
+        // Wait before allocating next rank
+        await sleep(delay);
+      }
+      // Restore the previously selected class after playback is complete
+      if (savedKosClass) {
+        mode = 'KOS';
+        selectedClass = savedKosClass;
+        kosSelect.value = savedKosClass;
+        eofSelect.value = '';
+        treeContainer.style.display = 'flex';
+        eofTreeContainer.style.display = 'none';
+        loadBuild();
+      } else if (savedEofClass) {
+        mode = 'EOF';
+        selectedEofClass = savedEofClass;
+        eofSelect.value = savedEofClass;
+        kosSelect.value = '';
+        treeContainer.style.display = 'none';
+        eofTreeContainer.style.display = 'flex';
+        loadEofBuild();
+      } else {
+        // If nothing was selected, hide both containers
+        treeContainer.style.display = 'none';
+        eofTreeContainer.style.display = 'none';
+      }
+      // Update the URL with the reconstructed build
+      updateURL();
     }
 
     function renderTree() {
@@ -2458,38 +2731,36 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           node.onclick = () => {
             if (canClick) {
               lastEditedClass = selectedClass;
-              // increment rank
               data.value++;
-              // record this point allocation in the global sequence
-              pointSequence.push({ tree: 'KOS', class: selectedClass, index: idx });
-              // reset removal flag since sequence is now consistent
-              removedFlag = false;
+              // record allocation in the global sequence
+              if (typeof pointSequence !== 'undefined') {
+                pointSequence.push({ tree: 'KOS', class: selectedClass, index: idx });
+              }
               saveBuild();
               recalcPoints();
-              updatePlayButtons();
               renderTree();
+              // playback removed; no play button to update
             }
           };
           node.oncontextmenu = e => {
             e.preventDefault();
             if (data.value > 0) {
               lastEditedClass = selectedClass;
-              // decrement rank
               data.value--;
-              // remove the most recent matching entry from the sequence
-              for (let k = pointSequence.length - 1; k >= 0; k--) {
-                const ent = pointSequence[k];
-                if (ent.tree === 'KOS' && ent.class === selectedClass && ent.index === idx) {
-                  pointSequence.splice(k, 1);
-                  break;
+              // remove the last matching KOS entry from the sequence
+              if (typeof pointSequence !== 'undefined' && Array.isArray(pointSequence)) {
+                for (let i = pointSequence.length - 1; i >= 0; i--) {
+                  const ent = pointSequence[i];
+                  if (ent.tree === 'KOS' && ent.class === selectedClass && ent.index === idx) {
+                    pointSequence.splice(i, 1);
+                    break;
+                  }
                 }
               }
-              // mark that a removal occurred
-              removedFlag = true;
               saveBuild();
               recalcPoints();
-              updatePlayButtons();
               renderTree();
+              // playback removed; no play button to update
             }
           };
           treeEl.appendChild(node);
@@ -2564,7 +2835,7 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
       eofPointsSpent = eofTreeData.reduce((sum, n) => sum + n.value * n.cost, 0);
       // Always display progress relative to the EoF cap rather than the raw maximum
       eofPointIndicator.textContent = `${eofPointsSpent}/${eofMaxPoints}`;
-      updatePlayButtons();
+      // Playback removed; no play button to update
     }
 
     // Determine whether a node can be progressed.  A node is clickable if it
@@ -2721,37 +2992,38 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           // click handlers
           nodeEl.onclick = () => {
             if (canClickEof(data)) {
-              // increment rank
               data.value++;
               eofBuilds[selectedEofClass][data.id] = data.value;
-              // record this point allocation
-              pointSequence.push({ tree: 'EOF', class: selectedEofClass, id: data.id });
-              removedFlag = false;
+              // record allocation in the global sequence
+              if (typeof pointSequence !== 'undefined') {
+                pointSequence.push({ tree: 'EOF', class: selectedEofClass, id: data.id });
+              }
               updateURL();
               recalcEofPoints();
-              updatePlayButtons();
               renderEofTree();
+              // playback removed; no play button to update
             }
           };
           nodeEl.oncontextmenu = (e) => {
             e.preventDefault();
             if (data.value > 0) {
-              // decrement rank
               data.value--;
               eofBuilds[selectedEofClass][data.id] = data.value;
-              // remove the most recent matching entry from the sequence
-              for (let k = pointSequence.length - 1; k >= 0; k--) {
-                const ent = pointSequence[k];
-                if (ent.tree === 'EOF' && ent.class === selectedEofClass && ent.id === data.id) {
-                  pointSequence.splice(k, 1);
-                  break;
+              // do not disable playback on removal
+              // remove the last matching EoF entry from the sequence
+              if (typeof pointSequence !== 'undefined' && Array.isArray(pointSequence)) {
+                for (let i = pointSequence.length - 1; i >= 0; i--) {
+                  const ent = pointSequence[i];
+                  if (ent.tree === 'EOF' && ent.class === selectedEofClass && ent.id === data.id) {
+                    pointSequence.splice(i, 1);
+                    break;
+                  }
                 }
               }
-              removedFlag = true;
               updateURL();
               recalcEofPoints();
-              updatePlayButtons();
               renderEofTree();
+              // playback removed; no play button to update
             }
           };
           eofTreeEl.appendChild(nodeEl);
