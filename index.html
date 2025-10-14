@@ -65,6 +65,12 @@
       align-self: center;
     }
 
+    /* Grey out disabled buttons */
+    .controls button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     .dropdowns select {
       padding: 0.4rem 0.6rem;
       border-radius: 6px;
@@ -302,6 +308,8 @@
       <div id="pointIndicator">0/50</div>
       <button id="resetBtn">Reset</button>
       <button id="copyUrlBtn">Export</button>
+      <!-- Unified play button for KOS/EoF builds.  Will allocate points following the recorded sequence. -->
+      <button id="playBtn">Play</button>
     </div>
   </div>
 
@@ -319,25 +327,20 @@
       <div id="eofPointIndicator">0/0</div>
       <button id="eofResetBtn">Reset</button>
       <button id="eofCopyUrlBtn">Export</button>
+      <!-- Unified play button for EoF (same function as KOS play button). -->
+      <button id="eofPlayBtn">Play</button>
     </div>
   </div>
   <script>
     const totalPoints = 50;
 
-    // Pixel size of each node.  This is used to set explicit widths for
-    // grid columns to ensure labels align nicely underneath.  Adjust
-    // this constant to increase or decrease spacing across all trees.
-    // Each AA node's size (width and height in px).  Increasing this value
-    // widens column spacing so branch names can align cleanly beneath their
-    // respective columns.  We bumped the size slightly to allow longer
-    // labels like "Don't Kill the Messenger" to fit comfortably.
+    // Base node size controlling spacing across trees
     const nodeSize = 120;
 
-    // Maximum points allowed in an EoF tree (hard cap).  Even if a class
-    // technically offers more points, players may only spend this many.
+    // Max allowed points in an EoF tree
     const eofMaxPoints = 50;
 
-    // Define an ordered palette of colours used to delineate tree columns.
+    // Colour palette per column
     const lineColors = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6'];
     const KOS_CLASSES = [
       "Bard","Brawler","Cleric","Crusader","Druid",
@@ -345,36 +348,27 @@
       "Sorcerer","Summoner","Warrior"
     ];
 
-    // === EoF class definitions ===
-    // These classes represent the Kingdom of Everfrost (Echoes of Faydwer) trees. Each entry
-    // defines a set of lines (branches) along with their column index and the number of points
-    // required in that line to unlock the endline.  Nodes describe individual abilities with
-    // their display name, short description, line assignment, grid position, maximum ranks and
-    // prerequisite conditions.  Prerequisites are satisfied if any of the referenced nodes
-    // have at least the specified rank.
-// Add the Conjuror class to the list of available EoF classes.  This array
-// drives the class dropdown and the mapping used to initialise builds.
-// Include Defiler in the list of Echoes of Faydwer classes.  This drives
-// the dropdown and build initialisation for the EoF portion of the planner.
+    // EoF class definitions including lines, nodes and prerequisites
+// Conjuror and Defiler classes included
 const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "Conjuror", "Defiler", "Dirge", "Fury", "Guardian", "Illusionist", "Inquisitor", "Monk", "Mystic", "Necromancer", "Paladin", "Ranger", "Shadowknight", "Swashbuckler", "Templar", "Troubador", "Warden", "Warlock", "Wizard"];
     const eofTrees = {
       Assassin: {
         lines: {
-          // Original base columns used for ordering and gating (5‑column segments).  Positions are defined explicitly below.
+          // Columns and gating for branches
           Bleeding: { col: 0, gating: 20 },
           Tricks:   { col: 3, gating: 20 },
           Physicality: { col: 6, gating: 20 },
           Poisons: { col: 8, gating: 20 }
         },
         nodes: [
-          // Assassin nodes mapped onto a 20×20 grid.  Top and bottom rows align horizontally.
+          // Assassin node positions
           { id:'scrapingBlow',    name:'Enhance: Scraping Blow',    description:'Increases overtime damage by 7% per rank.',                line:'Bleeding',    row:0,  col:1,  max:5, cost:1, prereqs:[] },
           { id:'flowingWound',    name:'Enhance: Flowing Wound',    description:'Increases overtime damage by 4% per rank.',                line:'Bleeding',    row:1,  col:0,  max:5, cost:1, prereqs:[{id:'scrapingBlow', rank:3}] },
           { id:'deadlyWound',     name:'Enhance: Deadly Wound',     description:'Increases overtime damage by 6% per rank.',                line:'Bleeding',    row:2,  col:1,  max:5, cost:1, prereqs:[{id:'flowingWound', rank:3},{id:'jugular', rank:3}] },
           { id:'malignantMark',   name:'Enhance: Malignant Mark',   description:'Increases trigger chance by 1% per rank.',                line:'Bleeding',    row:3,  col:0,  max:5, cost:1, prereqs:[{id:'flowingWound', rank:3},{id:'deadlyWound', rank:3}] },
           { id:'cloakedAssault',  name:'Enhance: Cloaked Assault',  description:'Increases overtime damage by 5% per rank.',                line:'Bleeding',    row:4,  col:1,  max:5, cost:1, prereqs:[{id:'malignantMark', rank:3},{id:'freezingStrike', rank:3}] },
           { id:'excessiveBleeding', name:'Excessive Bleeding',      description:'Reduces maximum health by up to 5% for each Bleeding ability active on a target.', line:'Bleeding', row:5,  col:1, max:1, cost:1, prereqs:[] },
-          // Tricks branch with original positions
+          // Tricks branch positions
           { id:'cheapShot',       name:'Enhance: Cheap Shot',       description:'Increases duration by 0.2 seconds per rank.',              line:'Tricks',      row:0,  col:3,  max:5, cost:1, prereqs:[] },
           { id:'jugular',         name:'Enhance: Jugular',          description:'Increases stifle duration by 1 second per rank.',            line:'Tricks',      row:1,  col:2,  max:5, cost:1, prereqs:[{id:'scrapingBlow', rank:3},{id:'cheapShot', rank:3}] },
           { id:'constriction',    name:'Enhance: Constriction',     description:'Improves reuse speed by 2 seconds per rank.',              line:'Tricks',      row:1,  col:4,  max:5, cost:1, prereqs:[{id:'cheapShot', rank:3},{id:'honedReflexes', rank:3}] },
@@ -382,14 +376,14 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           { id:'cripplingStrike', name:'Enhance: Crippling Strike', description:'Improves defense reduction by 4% per rank.',                   line:'Tricks',      row:3,  col:4,  max:5, cost:1, prereqs:[{id:'constriction', rank:3},{id:'honedReflexes', rank:3}] },
           { id:'masteryStrikes',  name:'Enhance: Mastery Strikes',  description:'Improves reuse speed by 8 seconds per rank.',                 line:'Tricks',      row:4,  col:3,  max:5, cost:1, prereqs:[{id:'freezingStrike', rank:3},{id:'cripplingStrike', rank:3}] },
           { id:'repeatedStabbing',name:'Repeated Stabbing',         description:'Increases recovery speed of caster by 100%.',                   line:'Tricks',      row:5,  col:3,  max:1, cost:1, prereqs:[] },
-          // Physicality branch with original positions
+          // Physicality branch positions
           { id:'sprint',          name:'Enhance: Sprint',           description:'Increases sprint movement speed by 5% and reduces initial power cost by 10% per rank.', line:'Physicality', row:0,  col:6,  max:5, cost:1, prereqs:[] },
           { id:'honedReflexes',   name:'Enhance: Honed Reflexes',   description:'Increases attack speed by an additional 3% per rank.',        line:'Physicality', row:1,  col:5,  max:5, cost:1, prereqs:[{id:'sprint', rank:3},{id:'constriction', rank:3}] },
           { id:'deftDefense',     name:'Enhance: Deft Defense',     description:'Reduces penalties by 20% per rank.',                           line:'Physicality', row:3,  col:5,  max:5, cost:1, prereqs:[{id:'honedReflexes', rank:3},{id:'constriction', rank:3}] },
           { id:'deadlyFocus',     name:'Enhance: Deadly Focus',     description:'Increases the damage per second effect by an additional 3 points per rank.', line:'Physicality', row:3,  col:7,  max:5, cost:1, prereqs:[{id:'hemotoxin', rank:3},{id:'ignorantBliss', rank:3}] },
           { id:'exacting',        name:'Enhance: Exacting',         description:'Improves reuse speed by 8 seconds per rank.',                   line:'Physicality', row:4,  col:6,  max:5, cost:1, prereqs:[{id:'deftDefense', rank:3},{id:'deadlyFocus', rank:3}] },
           { id:'getaway',         name:'Getaway',                   description:'Grants a burst of movement speed, stealth and AoE immunity until you attack or take damage.', line:'Physicality', row:5,  col:6,  max:1, cost:1, prereqs:[] },
-          // Poisons branch with original positions
+          // Poisons branch positions
           { id:'enmesh',          name:'Enhance: Enmesh',           description:'Increases poison resist reduction by 6% per rank.',              line:'Poisons',     row:0,  col:8,  max:5, cost:1, prereqs:[] },
           { id:'hemotoxin',       name:'Enhance: Hemotoxin Poison', description:'Reduces duration by 2 seconds per rank.',                       line:'Poisons',     row:1,  col:7,  max:5, cost:1, prereqs:[{id:'sprint', rank:3},{id:'enmesh', rank:3}] },
           { id:'ignorantBliss',   name:'Enhance: Ignorant Bliss Poison', description:'Increases hate reduction by 6% per rank.',            line:'Poisons',     row:1,  col:9,  max:5, cost:1, prereqs:[{id:'enmesh', rank:3}] },
@@ -406,7 +400,7 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           Bulking:      { col:15, gating: 15 }
         },
         nodes: [
-          // Perseverance branch positions (five‑column segment starting at 0)
+          // Perseverance branch positions
           { id:'mayhem',          name:'Enhance: Mayhem',          description:'Improves the reuse speed of Disorder and its upgrades by 3 seconds per rank.', line:'Perseverance', row:0,  col:1,  max:5, cost:1, prereqs:[] },
           { id:'bloodRage',       name:'Enhance: Blood Rage',       description:'Increases the health regenerated by Blood Rage and its upgrades by 10% per rank.', line:'Perseverance', row:1,  col:0,  max:5, cost:1, prereqs:[{id:'mayhem', rank:3}] },
           { id:'combativeRage',   name:'Enhance: Combative Rage',   description:'Increases the health regenerated by Screaming Rage and its upgrades by 6% per rank.', line:'Perseverance', row:1,  col:2,  max:5, cost:1, prereqs:[{id:'mayhem', rank:3},{id:'bloodbath', rank:3}] },
@@ -414,14 +408,14 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           { id:'unyieldingWill',  name:'Enhance: Unyielding Will',  description:'If you are Berserk when Unyielding Will expires, you escape its death effect.', line:'Perseverance', row:3,  col:2,  max:5, cost:1, prereqs:[{id:'combativeRage', rank:3},{id:'stunningHowl', rank:3}] },
           { id:'visionOfMadness', name:'Enhance: Vision of Madness', description:'Improves the reuse speed of your Vision of Madness by 100 seconds.', line:'Perseverance', row:4,  col:1,  max:5, cost:1, prereqs:[{id:'suppressedRage', rank:3},{id:'unyieldingWill', rank:1}] },
           { id:'perseveranceEnd', name:'Perseverance',              description:'The Berserker’s health regeneration abilities are twice as powerful while health is below 30%.', line:'Perseverance', row:5,  col:1,  max:1, cost:1, prereqs:[] },
-          // Cyclone branch positions (segment starting at 5)
+          // Cyclone branch positions
           { id:'bloodbath',        name:'Enhance: Bloodbath',        description:'Increases the damage of Whirl and its upgrades by 5% per rank.', line:'Cyclone',      row:0,  col:3,  max:5, cost:1, prereqs:[] },
           { id:'berserkerOnslaught', name:'Enhance: Berserker Onslaught', description:'Increases the damage of Barrage and its upgrades by 5% per rank.', line:'Cyclone',      row:1,  col:4,  max:5, cost:1, prereqs:[{id:'bloodbath', rank:3},{id:'persistentBattering', rank:3}] },
           { id:'stunningHowl',    name:'Enhance: Stunning Howl',    description:'Increases the damage of Stunning Cry and its upgrades by 5% per rank.', line:'Cyclone',      row:2,  col:3,  max:5, cost:1, prereqs:[{id:'berserkerOnslaught', rank:3},{id:'combativeRage', rank:3}] },
           { id:'destruction',     name:'Enhance: Destruction',      description:'Improves the reuse speed of Rampage and its upgrades by 5 seconds per rank.', line:'Cyclone',      row:3,  col:4,  max:5, cost:1, prereqs:[{id:'stunningHowl', rank:3},{id:'disfigure', rank:3}] },
           { id:'openWounds',      name:'Enhance: Open Wounds',      description:'Improves the reuse speed of Open Wounds by 5 seconds per rank.', line:'Cyclone',      row:4,  col:3,  max:5, cost:1, prereqs:[{id:'destruction', rank:3},{id:'unyieldingWill', rank:1}] },
           { id:'cyclones',        name:'Cyclones',                  description:'Increases the radius of all area effect combat arts and reduces resistability of taunts by 10%.', line:'Cyclone',      row:5,  col:3,  max:1, cost:1, prereqs:[] },
-          // Debilitation branch positions (segment starting at 10)
+          // Debilitation branch positions
           { id:'violentPledge',      name:'Enhance: Violent Pledge',      description:'Increases the damage and hate generated by Raging Blow and its upgrades by 4% per rank.', line:'Debilitation', row:0,  col:6,  max:5, cost:1, prereqs:[] },
           { id:'persistentBattering', name:'Enhance: Persistent Battering', description:'Mangle and its upgrades become more effective at reducing opponents’ offensive skill by 10% per rank.', line:'Debilitation', row:1,  col:5,  max:5, cost:1, prereqs:[{id:'violentPledge', rank:3},{id:'berserkerOnslaught', rank:3}] },
           { id:'agonizingPress',      name:'Enhance: Agonizing Press',      description:'Tackle and its upgrades improve in potency, increasing duration by 0.3 seconds per rank.', line:'Debilitation', row:1,  col:7,  max:5, cost:1, prereqs:[{id:'violentPledge', rank:3},{id:'engulfingRage', rank:3}] },
@@ -429,7 +423,7 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           { id:'ruthlessStrike',      name:'Enhance: Ruthless Strike',      description:'Surround and its upgrades reduce opponents’ casting skills by 10% per rank and improve reuse speed by 1 second per rank.', line:'Debilitation', row:3,  col:7,  max:5, cost:1, prereqs:[{id:'agonizingPress', rank:3},{id:'warCry', rank:2}] },
           { id:'demolish',            name:'Enhance: Demolish',            description:'Vanquished opponents are unable to cast spells for a longer amount of time, increasing duration by 0.3 seconds per rank.', line:'Debilitation', row:4,  col:6,  max:5, cost:1, prereqs:[{id:'disfigure', rank:3},{id:'ruthlessStrike', rank:3}] },
           { id:'gutRoar',             name:'Gut Roar',                      description:'Counters the next profession combat art or spell of anyone near the Berserker.', line:'Debilitation', row:5,  col:6,  max:1, cost:1, prereqs:[] },
-          // Bulking branch positions (segment starting at 15)
+          // Bulking branch positions
           { id:'engulfingRage',    name:'Enhance: Engulfing Rage',    description:'Increases the trigger chance of Focus Anger and its upgrades by 1% per rank.', line:'Bulking',      row:0,  col:8,  max:5, cost:1, prereqs:[] },
           { id:'wallOfFerocity',   name:'Enhance: Wall of Ferocity',   description:'Increases the duration of Hunker and its upgrades by 3 seconds per rank.', line:'Bulking',      row:1,  col:9,  max:5, cost:1, prereqs:[{id:'engulfingRage', rank:3}] },
           { id:'warCry',           name:'Enhance: War Cry',            description:'Increases the trigger chance of Battle Chant and its upgrades by 1% per rank.', line:'Bulking',      row:2,  col:8,  max:3, cost:1, prereqs:[{id:'wallOfFerocity', rank:3},{id:'agonizingPress', rank:3}] },
@@ -1978,6 +1972,13 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
     const resetBtn   = document.getElementById('resetBtn');
     const copyUrlBtn = document.getElementById('copyUrlBtn');
 
+    // Playback tracking: record allocations and track removal state
+    let pointSequence = [];
+    let removedFlag = false;
+    // Unified play buttons
+    const playBtn     = document.getElementById('playBtn');
+    const eofPlayBtn  = document.getElementById('eofPlayBtn');
+
     // === EoF state and DOM references ===
     let selectedEofClass = '';
     let eofTreeData = [];
@@ -1996,29 +1997,81 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
     const eofResetBtn      = document.getElementById('eofResetBtn');
     const eofCopyUrlBtn    = document.getElementById('eofCopyUrlBtn');
 
+    // Disable play when >100 points spent or removals occurred
+    function updatePlayButtons() {
+      // total spent is computed from both KOS and EoF counters.
+      const totalSpentAll = pointsSpent + eofPointsSpent;
+      let reason = '';
+      if (totalSpentAll > 100) {
+        reason = 'More than 100 points have been spent';
+      } else if (removedFlag) {
+        reason = 'Some points have been removed';
+      }
+      const disabled = reason !== '';
+      if (playBtn) {
+        playBtn.disabled = disabled;
+        playBtn.title = reason || '';
+      }
+      if (eofPlayBtn) {
+        eofPlayBtn.disabled = disabled;
+        eofPlayBtn.title = reason || '';
+      }
+    }
+
     resetBtn.onclick = () => {
-      // reset all ranks for the current KOS class
-      builds[selectedClass] = new Array(nodeCount).fill(0);
-      // update the URL to clear the KOS build (and keep EoF data if any)
-      updateURL();
-      loadBuild();
+      // reset all ranks for every KOS class
+      KOS_CLASSES.forEach(cls => {
+        builds[cls] = new Array(nodeCount).fill(0);
+      });
+      // reset all ranks for every EoF class
+      EOF_CLASSES.forEach(cls => {
+        const obj = eofBuilds[cls];
+        if (obj) {
+          Object.keys(obj).forEach(id => { obj[id] = 0; });
+        }
+      });
+      // clear the recorded sequence and removal state
+      pointSequence = [];
+      removedFlag = false;
+      // remove all query parameters from the URL
+      const url = new URL(window.location);
+      url.search = '';
+      window.history.replaceState(null, '', url);
+      // reload UI
+      recalcPoints();
+      recalcEofPoints();
+      renderTree();
+      renderEofTree();
+      updatePlayButtons();
     };
 
     // Reset the currently selected EoF tree.  Clears all ranks and removes
     // the "eof" parameter from the URL.
     eofResetBtn.onclick = () => {
-      // reset all ranks for the current EoF class
-      if (!selectedEofClass) return;
-      const buildObj = eofBuilds[selectedEofClass];
-      Object.keys(buildObj).forEach(id => { buildObj[id] = 0; });
-      // remove the "eof" query parameter from the URL
-      const url = new URL(window.location);
-      url.searchParams.delete('eof');
-      window.history.replaceState(null, '', url);
-      // reload the EoF build to sync eofTreeData values and recalc points
-      loadEofBuild();
-      // update the URL (to clear out any saved KOS/EoF builds)
-      updateURL();
+      // reset all ranks for every KOS class
+      KOS_CLASSES.forEach(cls => {
+        builds[cls] = new Array(nodeCount).fill(0);
+      });
+      // reset all ranks for every EoF class
+      EOF_CLASSES.forEach(cls => {
+        const obj = eofBuilds[cls];
+        if (obj) {
+          Object.keys(obj).forEach(id => { obj[id] = 0; });
+        }
+      });
+      // clear the recorded sequence and removal state
+      pointSequence = [];
+      removedFlag = false;
+      // wipe all query parameters
+      const url2 = new URL(window.location);
+      url2.search = '';
+      window.history.replaceState(null, '', url2);
+      // reload UI
+      recalcPoints();
+      recalcEofPoints();
+      renderTree();
+      renderEofTree();
+      updatePlayButtons();
     };
 
     copyUrlBtn.onclick = () => {
@@ -2045,6 +2098,18 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           console.error('Failed to copy URL:', err);
         });
     };
+
+    // Attach playback handlers to play buttons
+    if (playBtn) {
+      playBtn.onclick = () => {
+        playBuild();
+      };
+    }
+    if (eofPlayBtn) {
+      eofPlayBtn.onclick = () => {
+        playBuild();
+      };
+    }
 
     function init() {
       // 1. parse any “build” (KOS) and "eof" (EoF) params from the URL
@@ -2086,6 +2151,20 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           console.error('Invalid EoF build data in URL:', e);
         }
       }
+
+      // Decode sequence and removed flag from URL
+      if (params.has('seq')) {
+        try {
+          const seqVal = params.get('seq');
+          const decoded = atob(seqVal);
+          pointSequence = JSON.parse(decoded);
+        } catch (e) {
+          console.error('Invalid seq data in URL:', e);
+          pointSequence = [];
+        }
+      }
+      // Restore removed state if flagged
+      removedFlag = params.get('rem') === '1';
 
       // 2. populate the class dropdowns
       // insert the selectable KOS classes (skip index 0 because we added a blank option in the markup)
@@ -2220,12 +2299,108 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
         } else {
             url.searchParams.delete('eof');
         }
+
+        // Encode or clear the recorded sequence in the URL
+        if (pointSequence && pointSequence.length > 0) {
+          try {
+            url.searchParams.set('seq', btoa(JSON.stringify(pointSequence)));
+          } catch (e) {
+            console.error('Failed to encode sequence:', e);
+          }
+        } else {
+          url.searchParams.delete('seq');
+        }
+        // Persist or clear removed flag
+        if (removedFlag) {
+          url.searchParams.set('rem', '1');
+        } else {
+          url.searchParams.delete('rem');
+        }
         window.history.replaceState(null, '', url);
+    }
+
+    // Sequentially replay the recorded build with delays and tree switching
+    function playBuild() {
+      if (!pointSequence || pointSequence.length === 0) return;
+      const origMode = mode;
+      const origClass = selectedClass;
+      const origEofClass = selectedEofClass;
+      const origKosSelect = kosSelect.value;
+      const origEofSelect = eofSelect.value;
+      const usedKos = new Set();
+      const usedEof = new Set();
+      pointSequence.forEach(ent => {
+        if (ent.tree === 'KOS') usedKos.add(ent.class);
+        else usedEof.add(ent.class);
+      });
+      usedKos.forEach(cls => { builds[cls] = new Array(nodeCount).fill(0); });
+      usedEof.forEach(cls => {
+        const obj = eofBuilds[cls];
+        if (obj) Object.keys(obj).forEach(id => { obj[id] = 0; });
+      });
+      recalcPoints();
+      recalcEofPoints();
+      renderTree();
+      renderEofTree();
+      if (playBtn) playBtn.disabled = true;
+      if (eofPlayBtn) eofPlayBtn.disabled = true;
+      const allocate = (index, prevTree) => {
+        if (index >= pointSequence.length) {
+          selectedClass = origClass;
+          selectedEofClass = origEofClass;
+          kosSelect.value = origKosSelect;
+          eofSelect.value = origEofSelect;
+          if (origMode === 'KOS' && selectedClass) {
+            mode = 'KOS';
+            treeContainer.style.display = 'flex';
+            eofTreeContainer.style.display = 'none';
+            loadBuild();
+          } else if (origMode === 'EOF' && selectedEofClass) {
+            mode = 'EOF';
+            treeContainer.style.display = 'none';
+            eofTreeContainer.style.display = 'flex';
+            loadEofBuild();
+          }
+          updateURL();
+          updatePlayButtons();
+          return;
+        }
+        const entry = pointSequence[index];
+        let delay = 500;
+        if (prevTree && entry.tree !== prevTree) delay += 500;
+        if (entry.tree === 'KOS') {
+          selectedClass = entry.class;
+          kosSelect.value = entry.class;
+          eofSelect.value = '';
+          mode = 'KOS';
+          treeContainer.style.display = 'flex';
+          eofTreeContainer.style.display = 'none';
+          const idx = entry.index;
+          builds[selectedClass][idx] = (builds[selectedClass][idx] || 0) + 1;
+          loadBuild();
+        } else {
+          selectedEofClass = entry.class;
+          eofSelect.value = entry.class;
+          kosSelect.value = '';
+          mode = 'EOF';
+          treeContainer.style.display = 'none';
+          eofTreeContainer.style.display = 'flex';
+          const nid = entry.id;
+          if (!eofBuilds[selectedEofClass]) {
+            eofBuilds[selectedEofClass] = {};
+          }
+          eofBuilds[selectedEofClass][nid] = (eofBuilds[selectedEofClass][nid] || 0) + 1;
+          loadEofBuild();
+        }
+        setTimeout(() => allocate(index + 1, entry.tree), delay);
+      };
+      allocate(0, null);
     }
 
     function recalcPoints() {
       pointsSpent = treeData.reduce((sum, n) => sum + n.value * n.cost, 0);
       pointIndicator.textContent = `${pointsSpent}/${totalPoints}`;
+      updatePlayButtons();
     }
 
     function renderTree() {
@@ -2283,9 +2458,15 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           node.onclick = () => {
             if (canClick) {
               lastEditedClass = selectedClass;
+              // increment rank
               data.value++;
+              // record this point allocation in the global sequence
+              pointSequence.push({ tree: 'KOS', class: selectedClass, index: idx });
+              // reset removal flag since sequence is now consistent
+              removedFlag = false;
               saveBuild();
               recalcPoints();
+              updatePlayButtons();
               renderTree();
             }
           };
@@ -2293,9 +2474,21 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
             e.preventDefault();
             if (data.value > 0) {
               lastEditedClass = selectedClass;
+              // decrement rank
               data.value--;
+              // remove the most recent matching entry from the sequence
+              for (let k = pointSequence.length - 1; k >= 0; k--) {
+                const ent = pointSequence[k];
+                if (ent.tree === 'KOS' && ent.class === selectedClass && ent.index === idx) {
+                  pointSequence.splice(k, 1);
+                  break;
+                }
+              }
+              // mark that a removal occurred
+              removedFlag = true;
               saveBuild();
               recalcPoints();
+              updatePlayButtons();
               renderTree();
             }
           };
@@ -2371,6 +2564,7 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
       eofPointsSpent = eofTreeData.reduce((sum, n) => sum + n.value * n.cost, 0);
       // Always display progress relative to the EoF cap rather than the raw maximum
       eofPointIndicator.textContent = `${eofPointsSpent}/${eofMaxPoints}`;
+      updatePlayButtons();
     }
 
     // Determine whether a node can be progressed.  A node is clickable if it
@@ -2527,20 +2721,36 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
           // click handlers
           nodeEl.onclick = () => {
             if (canClickEof(data)) {
+              // increment rank
               data.value++;
               eofBuilds[selectedEofClass][data.id] = data.value;
+              // record this point allocation
+              pointSequence.push({ tree: 'EOF', class: selectedEofClass, id: data.id });
+              removedFlag = false;
               updateURL();
               recalcEofPoints();
+              updatePlayButtons();
               renderEofTree();
             }
           };
           nodeEl.oncontextmenu = (e) => {
             e.preventDefault();
             if (data.value > 0) {
+              // decrement rank
               data.value--;
               eofBuilds[selectedEofClass][data.id] = data.value;
+              // remove the most recent matching entry from the sequence
+              for (let k = pointSequence.length - 1; k >= 0; k--) {
+                const ent = pointSequence[k];
+                if (ent.tree === 'EOF' && ent.class === selectedEofClass && ent.id === data.id) {
+                  pointSequence.splice(k, 1);
+                  break;
+                }
+              }
+              removedFlag = true;
               updateURL();
               recalcEofPoints();
+              updatePlayButtons();
               renderEofTree();
             }
           };
