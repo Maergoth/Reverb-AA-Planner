@@ -296,6 +296,8 @@
     </select>
     <label for="eofSelect">EOF:</label>
     <select id="eofSelect"><option value="">Select...</option></select>
+    <!-- ROK checkbox to toggle point cap between 50 and 70 -->
+    <label><input type="checkbox" id="rokCheckbox"> ROK</label>
   </div>
 
   <div id="treeContainer">
@@ -322,20 +324,22 @@
       <div id="lineLabelsEof" class="line-labels"></div>
     </div>
     <div class="controls">
-      <div id="eofPointIndicator">0/0</div>
+      <div id="eofPointIndicator">0/50</div>
       <!-- Playback removed -->
       <button id="eofResetBtn">Reset</button>
       <button id="eofCopyUrlBtn">Export</button>
     </div>
   </div>
   <script>
-    const totalPoints = 50;
+    // Allow point cap to change via ROK checkbox; initialise at 50 but update dynamically
+    let totalPoints = 50;
 
     // Base pixel size of nodes used for consistent grid spacing.
     const nodeSize = 120;
 
     // Max points allowed in an EoF tree.
-    const eofMaxPoints = 50;
+    // Max points allowed in an EoF tree; adjustable via ROK checkbox
+    let eofMaxPoints = 50;
 
     // Colour palette for tree columns.
     const lineColors = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6'];
@@ -1687,7 +1691,7 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
         { id:'incapacitate', name:'Enhance: Incapacitate', description:'Reduces power cost by 3%. Improves reuse speed by 1 seconds.', line:'Heat', row:1, col:3, max:5, cost:1, prereqs:[{id:'sunstrike', rank:3}] },
         { id:'firestorm', name:'Enhance: Firestorm', description:'Reduces power cost by 3%. Increases radius by 20%.', line:'Heat', row:3, col:1, max:5, cost:1, prereqs:[{id:'irradiate', rank:3}] },
         { id:'fieryConvulsions', name:'Enhance: Fiery Convulsions', description:'Reduces power cost by 3%. Reduces duration by 1 seconds.', line:'Heat', row:3, col:3, max:5, cost:1, prereqs:[{id:'incapacitate', rank:3},{id:'accord', rank:3}] },
-        { id:'ballOfLava', name:'Enhance: Ball of Lava', description:'Reduces power cost by 3%. Improves casting speed by 0.1 seconds.', line:'Heat', row:4, col:2, max:5, cost:1, prereqs:[{id:'fieryConvulsions', rank:1},{id:'firestorm', rank:3}] },
+          { id:'ballOfLava', name:'Enhance: Ball of Lava', description:'Reduces power cost by 3%. Improves casting speed by 0.1 seconds.', line:'Heat', row:4, col:2, max:5, cost:1, prereqs:[{id:'fieryConvulsions', rank:1}] },
         { id:'infernoSurge', name:'Enhance: Inferno Surge', description:'Requires 15 points in Heat. Increases duration by 2 seconds.', line:'Heat', row:5, col:0, max:5, cost:1, prereqs:[] },
         { id:'fireshape', name:'Fireshape', description:'All magic and cold spells are now heat spells.', line:'Heat', row:6, col:2, max:1, cost:1, prereqs:[] },
         { id:'fortifyElements', name:'Enhance: Fortify Elements', description:'Increases maximum power by 4%.', line:'Power', row:0, col:4, max:5, cost:1, prereqs:[] },
@@ -1706,7 +1710,7 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
         { id:'electrifyingFlash', name:'Enhance: Electrifying Flash', description:'Reduces resistibility by 3%. Increases damage by 3%.', line:'Cold', row:1, col:9, max:5, cost:1, prereqs:[{id:'rendingIcicles', rank:3}] },
         { id:'surgingTempest', name:'Enhance: Surging Tempest', description:'Reduces resistibility by 3%. Reduces duration by 2.4 seconds.', line:'Cold', row:3, col:7, max:4, cost:1, prereqs:[{id:'cease', rank:3},{id:'iceNova', rank:3}] },
         { id:'glacialWind', name:'Enhance: Glacial Wind', description:'Reduces resistibility by 3%. Improves reuse speed by 1 seconds.', line:'Cold', row:3, col:9, max:5, cost:1, prereqs:[{id:'electrifyingFlash', rank:3}] },
-        { id:'fusion', name:'Enhance: Fusion', description:'Reduces resistibility by 3%. Increases range and radius by 1.', line:'Cold', row:4, col:8, max:5, cost:1, prereqs:[{id:'surgingTempest', rank:1},{id:'glacialWind', rank:3}] },
+          { id:'fusion', name:'Enhance: Fusion', description:'Reduces resistibility by 3%. Increases range and radius by 1.', line:'Cold', row:4, col:8, max:5, cost:1, prereqs:[{id:'surgingTempest', rank:1}] },
         { id:'frigidGift', name:'Enhance: Frigid Gift', description:'Requires 15 points in Cold. Increases duration by 1 seconds.', line:'Cold', row:5, col:10, max:5, cost:1, prereqs:[] },
         { id:'iceshape', name:'Iceshape', description:'All magic and heat spells are now cold spells.', line:'Cold', row:6, col:8, max:1, cost:1, prereqs:[] }
       ]
@@ -2180,6 +2184,30 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
     const eofResetBtn      = document.getElementById('eofResetBtn');
     const eofCopyUrlBtn    = document.getElementById('eofCopyUrlBtn');
 
+    // === ROK checkbox ===
+    // Retrieve the ROK checkbox and set up a handler to adjust point caps between 50 and 70.
+    const rokCheckbox = document.getElementById('rokCheckbox');
+    function updatePointCaps() {
+      const cap = rokCheckbox.checked ? 70 : 50;
+      totalPoints = cap;
+      eofMaxPoints = cap;
+      // Recalculate spent points and update indicators
+      recalcPoints();
+      recalcEofPoints();
+      // Re-render trees to update clickable states based on new caps
+      // Only render if data has been initialised to avoid errors on page load
+      if (treeData && treeData.length > 0) {
+        renderTree();
+      }
+      if (eofTreeData && eofTreeData.length > 0) {
+        renderEofTree();
+      }
+    }
+    // Initialise the caps on page load
+    updatePointCaps();
+    // Update caps whenever the checkbox is toggled
+    rokCheckbox.addEventListener('change', updatePointCaps);
+
     // === Playback state and controls (unused) ===
     // pointSequence and removedFlag are kept for compatibility but playback has been removed.
     let pointSequence = [];
@@ -2469,22 +2497,28 @@ const EOF_CLASSES = ["Assassin", "Berserker", "Brigand", "Bruiser", "Coercer", "
     // Persist both KOS and EoF build data into the URL using the compact encoding
     function updateURL() {
         const url = new URL(window.location);
-        // Encode builds and sequence using compact format for shorter URLs
+        // Encode builds using compact format for shorter URLs
         const kosStr = encodeKosBuilds();
-        if (kosStr && kosStr.length > 0) {
-          url.searchParams.set('build', kosStr);
-        } else {
-          url.searchParams.delete('build');
-        }
         const eofStr = encodeEofBuilds();
-        if (eofStr && eofStr.length > 0) {
-          url.searchParams.set('eof', eofStr);
-        } else {
-          url.searchParams.delete('eof');
+        /*
+         * Construct a new URLSearchParams to control the order of query
+         * parameters explicitly.  When using url.searchParams.set() on an
+         * existing URL object, parameters retain their original insertion
+         * order which can lead to `eof` appearing before `build` if the EoF
+         * tree was populated prior to the KOS tree.  To avoid this, we
+         * assemble a fresh set of parameters starting with the KOS build,
+         * followed by the EoF build (if present).  Sequence and removal
+         * state are not encoded since playback has been removed.
+         */
+        const newParams = new URLSearchParams();
+        if (kosStr && kosStr.length > 0) {
+          newParams.set('build', kosStr);
         }
-        // Sequence is no longer encoded since playback has been removed.
-        url.searchParams.delete('seq');
-        // No longer track removal state in the URL.
+        if (eofStr && eofStr.length > 0) {
+          newParams.set('eof', eofStr);
+        }
+        // Apply the new query string to the URL
+        url.search = newParams.toString();
         window.history.replaceState(null, '', url);
     }
 
